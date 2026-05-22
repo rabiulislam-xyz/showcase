@@ -6,6 +6,7 @@ pub mod sizes;
 pub mod snapd;
 pub mod sources;
 pub mod icons;
+pub mod aggregate;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
