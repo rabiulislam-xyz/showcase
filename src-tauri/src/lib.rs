@@ -2,6 +2,7 @@ pub mod model;
 pub mod desktop;
 pub mod runner;
 pub mod dpkg;
+pub mod sources;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
