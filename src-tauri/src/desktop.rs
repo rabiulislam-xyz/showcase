@@ -165,4 +165,22 @@ mod tests {
         assert!(!names.contains(&"Hidden App".to_string()));
         assert_eq!(entries.len(), 1);
     }
+
+    #[test]
+    fn parses_tricky_lines_and_ignores_other_groups() {
+        let text = "[Desktop Entry]\n\
+            Exec = env FOO=bar app %U\n\
+            Type=Application\n\
+            [Desktop Action New]\n\
+            Name=Should Be Ignored\n";
+        let e = parse_entry(PathBuf::from("/t.desktop"), text);
+        // First '=' splits; embedded '=' in the value is preserved; spaces trimmed.
+        assert_eq!(e.exec.as_deref(), Some("env FOO=bar app %U"));
+        // Keys under a non-[Desktop Entry] group are not read.
+        assert_eq!(e.name, None);
+
+        // Missing Type must not be displayable.
+        let no_type = parse_entry(PathBuf::from("/n.desktop"), "[Desktop Entry]\nName=X\n");
+        assert!(!no_type.should_display());
+    }
 }
