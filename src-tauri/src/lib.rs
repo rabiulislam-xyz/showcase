@@ -9,6 +9,7 @@ pub mod icons;
 pub mod aggregate;
 pub mod commands;
 pub mod details;
+pub mod uninstall;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
