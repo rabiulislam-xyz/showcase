@@ -46,6 +46,13 @@ impl App {
     }
 }
 
+/// Aggregated result returned to the frontend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppList {
+    pub apps: Vec<App>,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(tag = "kind", content = "message")]
 pub enum AppError {
@@ -77,5 +84,13 @@ mod tests {
     #[test]
     fn uid_combines_source_and_ref() {
         assert_eq!(App::make_uid(Source::Snap, "firefox"), "snap:firefox");
+    }
+
+    #[test]
+    fn app_list_serializes_warnings_field() {
+        let list = AppList { apps: vec![], warnings: vec!["x".into()] };
+        let json = serde_json::to_string(&list).unwrap();
+        assert!(json.contains("\"warnings\""), "expected 'warnings' key in: {json}");
+        assert!(json.contains("\"apps\""), "expected 'apps' key in: {json}");
     }
 }

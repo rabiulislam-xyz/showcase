@@ -2,7 +2,7 @@ use crate::aggregate::{self, Aggregated};
 use crate::desktop;
 use crate::dpkg;
 use crate::icons;
-use crate::model::App;
+use crate::model::{App, AppList};
 use crate::runner::SystemRunner;
 use crate::sources::{apt, flatpak, snap};
 use std::collections::HashMap;
@@ -81,6 +81,7 @@ fn resolve_icons(
 }
 
 #[tauri::command]
-pub fn list_apps() -> Vec<App> {
-    enumerate().apps
+pub fn list_apps() -> AppList {
+    let agg = enumerate();
+    AppList { apps: agg.apps, warnings: agg.warnings }
 }
