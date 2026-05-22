@@ -3,6 +3,18 @@ use serde::Deserialize;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 
+/// Response envelope for a single snap (`/v2/snaps/<name>`).
+#[derive(Debug, Deserialize)]
+struct SingleSnapResponse {
+    result: SingleSnapEntry,
+}
+
+#[derive(Debug, Deserialize)]
+struct SingleSnapEntry {
+    #[serde(default)]
+    description: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct SnapdResponse {
     result: Vec<SnapEntry>,
@@ -108,6 +120,14 @@ pub fn snapd_get(path: &str) -> Result<String, AppError> {
 pub fn list() -> Result<Vec<App>, AppError> {
     let body = snapd_get("/v2/snaps")?;
     parse_snaps(&body)
+}
+
+/// Fetch the long `description` field for a single snap. Returns None on any error.
+pub fn get_snap_description(snap_name: &str) -> Option<String> {
+    let path = format!("/v2/snaps/{snap_name}");
+    let body = snapd_get(&path).ok()?;
+    let resp: SingleSnapResponse = serde_json::from_str(&body).ok()?;
+    resp.result.description.filter(|s| !s.is_empty())
 }
 
 #[cfg(test)]

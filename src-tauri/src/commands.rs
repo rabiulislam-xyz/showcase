@@ -1,9 +1,10 @@
 use crate::aggregate::{self, Aggregated};
 use crate::desktop;
+use crate::details;
 use crate::dpkg;
 use crate::icons;
 use crate::model::{App, AppList, Source};
-use crate::runner::SystemRunner;
+use crate::runner::{CommandRunner, SystemRunner};
 use crate::sources::{apt, flatpak, snap};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -175,4 +176,42 @@ fn resolve_icon_name(
 pub fn list_apps() -> AppList {
     let agg = enumerate();
     AppList { apps: agg.apps, warnings: agg.warnings }
+}
+
+/// Lazily fetch the long description for an app identified by `uid` ("source:pkg_ref").
+/// Returns None on any error or when no description is available.
+#[tauri::command]
+pub fn get_app_details(uid: String) -> Option<String> {
+    // Split on the first ':' only — pkg_ref may contain colons (flatpak app-ids do not,
+    // but be defensive).
+    let (source_str, pkg_ref) = uid.split_once(':')?;
+    match source_str {
+        "apt" => {
+            let out = SystemRunner.run("apt-cache", &["show", pkg_ref]).ok()?;
+            details::parse_apt_description(&out)
+        }
+        "flatpak" => {
+            // `flatpak info` output has a "Description:" line; reuse parse_apt_description
+            // since the format is compatible for our purposes.
+            let out = SystemRunner.run("flatpak", &["info", pkg_ref]).ok()?;
+            // flatpak info uses "Description:" key, possibly with a value on the same line.
+            // parse_apt_description only reads continuation lines; if flatpak puts the whole
+            // description on one line we fall back to reading it directly.
+            if let Some(desc) = details::parse_apt_description(&out) {
+                return Some(desc);
+            }
+            // Single-line fallback: find "Description: <text>".
+            out.lines().find_map(|l| {
+                let lower = l.to_ascii_lowercase();
+                if lower.starts_with("description:") {
+                    let val = l.splitn(2, ':').nth(1).unwrap_or("").trim().to_string();
+                    if !val.is_empty() { Some(val) } else { None }
+                } else {
+                    None
+                }
+            })
+        }
+        "snap" => crate::snapd::get_snap_description(pkg_ref),
+        _ => None,
+    }
 }

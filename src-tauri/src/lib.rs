@@ -8,12 +8,13 @@ pub mod sources;
 pub mod icons;
 pub mod aggregate;
 pub mod commands;
+pub mod details;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![commands::list_apps])
+        .invoke_handler(tauri::generate_handler![commands::list_apps, commands::get_app_details])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
