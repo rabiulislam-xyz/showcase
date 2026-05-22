@@ -58,6 +58,39 @@ pub fn parse_snaps(body: &str) -> Result<Vec<App>, AppError> {
     Ok(apps)
 }
 
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
+
+const SOCKET: &str = "/run/snapd.socket";
+
+/// GET a snapd REST path over the unix socket and return the response body.
+/// Minimal blocking HTTP/1.0 client (snapd speaks HTTP over the socket).
+pub fn snapd_get(path: &str) -> Result<String, AppError> {
+    let mut stream = UnixStream::connect(SOCKET)
+        .map_err(|e| AppError::SourceUnavailable(format!("snapd socket: {e}")))?;
+    let req = format!("GET {path} HTTP/1.0\r\nHost: localhost\r\n\r\n");
+    stream
+        .write_all(req.as_bytes())
+        .map_err(|e| AppError::Backend(format!("snapd write: {e}")))?;
+    let mut raw = String::new();
+    stream
+        .read_to_string(&mut raw)
+        .map_err(|e| AppError::Backend(format!("snapd read: {e}")))?;
+    // Split headers from body at the first blank line.
+    let body = raw
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| b)
+        .unwrap_or("")
+        .to_string();
+    Ok(body)
+}
+
+/// List installed snap apps from the live socket.
+pub fn list() -> Result<Vec<App>, AppError> {
+    let body = snapd_get("/v2/snaps")?;
+    parse_snaps(&body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
