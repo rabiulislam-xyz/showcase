@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use crate::model::Source;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DesktopEntry {
@@ -66,6 +67,18 @@ pub fn parse_entry(path: PathBuf, text: &str) -> DesktopEntry {
     entry
 }
 
+/// Classify which package source owns a `.desktop` file by its location.
+pub fn classify_source(path: &std::path::Path) -> Source {
+    let p = path.to_string_lossy();
+    if p.contains("/flatpak/") {
+        Source::Flatpak
+    } else if p.contains("/snapd/desktop/") {
+        Source::Snap
+    } else {
+        Source::Apt
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,5 +117,22 @@ mod tests {
 
         let link = parse_entry(PathBuf::from("/d"), "[Desktop Entry]\nType=Link\n");
         assert!(!link.should_display());
+    }
+
+    #[test]
+    fn classifies_by_path() {
+        use std::path::Path;
+        assert_eq!(
+            classify_source(Path::new("/var/lib/flatpak/exports/share/applications/x.desktop")),
+            Source::Flatpak
+        );
+        assert_eq!(
+            classify_source(Path::new("/var/lib/snapd/desktop/applications/firefox_firefox.desktop")),
+            Source::Snap
+        );
+        assert_eq!(
+            classify_source(Path::new("/usr/share/applications/gedit.desktop")),
+            Source::Apt
+        );
     }
 }
