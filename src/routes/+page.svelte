@@ -14,6 +14,7 @@
   import AppGrid from "$lib/components/AppGrid.svelte";
   import AppDetail from "$lib/components/AppDetail.svelte";
   import Spinner from "$lib/components/Spinner.svelte";
+  import Toast from "$lib/components/Toast.svelte";
 
   onMount(loadApps);
 
@@ -67,6 +68,7 @@
 </div>
 
 <AppDetail />
+<Toast />
 
 <style>
   .app {

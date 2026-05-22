@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { App } from "$lib/types";
-  import { selected } from "$lib/stores";
-  import { iconSrc, getAppDetails } from "$lib/api";
+  import { selected, removeApp, pushToast } from "$lib/stores";
+  import { iconSrc, getAppDetails, uninstallApp } from "$lib/api";
   import { humanSize, humanDate } from "$lib/format";
   import SourceBadge from "./SourceBadge.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import { fly, fade } from "svelte/transition";
 
   let app = $derived($selected);
@@ -16,6 +17,10 @@
 
   let drawerEl: HTMLElement | undefined = $state();
   let prevFocus: HTMLElement | null = null;
+
+  // Uninstall confirm dialog state
+  let confirmOpen = $state(false);
+  let busy = $state(false);
 
   $effect(() => {
     if (app) {
@@ -81,6 +86,56 @@
       { label: "Command", value: app.exec ?? "—", mono: true, truncate: true },
     ];
   });
+
+  // Build the confirmation message dynamically based on app properties.
+  let confirmMessage = $derived.by<string>(() => {
+    if (!app) return "";
+    let msg = `This removes ${app.name} (${app.source}).`;
+    if (app.size_bytes) {
+      msg += ` Frees about ${humanSize(app.size_bytes)}.`;
+    }
+    msg += ` You may be asked for your password.`;
+    if (app.source === "apt") {
+      msg += ` It may also remove other packages that depend on it.`;
+    }
+    return msg;
+  });
+
+  /** Detect a PermissionDenied error from the Tauri invoke result. */
+  function isPermissionDenied(e: unknown): boolean {
+    if (typeof e === "object" && e !== null) {
+      const obj = e as Record<string, unknown>;
+      if (obj["kind"] === "PermissionDenied") return true;
+    }
+    if (typeof e === "string") {
+      return e.includes("PermissionDenied") || e.toLowerCase().includes("permission denied");
+    }
+    return false;
+  }
+
+  async function handleUninstallConfirm() {
+    if (!app) return;
+    const { uid, name } = app;
+    busy = true;
+    try {
+      await uninstallApp(uid);
+      pushToast("success", `${name} uninstalled`);
+      // removeApp clears selected (closes the drawer) if this app was open.
+      removeApp(uid);
+      confirmOpen = false;
+    } catch (e: unknown) {
+      const msg = isPermissionDenied(e)
+        ? "Authentication cancelled — nothing was removed."
+        : (typeof e === "object" && e !== null && "message" in e
+            ? String((e as { message: unknown }).message)
+            : String(e));
+      pushToast("error", msg);
+      // Keep the drawer open; close the confirm dialog.
+      confirmOpen = false;
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -174,13 +229,25 @@
       <button
         type="button"
         class="uninstall"
-        disabled
-        title="Coming in Plan 3"
+        disabled={!app.removable || busy}
+        title={app.removable ? undefined : (app.protected_reason ?? "This package is protected")}
+        onclick={() => { confirmOpen = true; }}
       >
         Uninstall
       </button>
     </footer>
   </div>
+
+  <ConfirmDialog
+    open={confirmOpen}
+    title="Uninstall {app.name}?"
+    message={confirmMessage}
+    confirmLabel="Uninstall"
+    destructive={true}
+    {busy}
+    onconfirm={handleUninstallConfirm}
+    oncancel={() => { if (!busy) confirmOpen = false; }}
+  />
 {/if}
 
 <style>
@@ -382,13 +449,22 @@
   .uninstall {
     width: 100%;
     padding: 9px 14px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--destructive);
     border-radius: var(--radius-ctrl);
     background: var(--surface);
     color: var(--destructive);
     font: inherit;
     font-size: 14px;
     font-weight: 600;
+    cursor: pointer;
+  }
+  .uninstall:hover:not(:disabled) {
+    background: var(--destructive);
+    color: #fff;
+  }
+  .uninstall:disabled {
+    border-color: var(--border);
+    color: var(--muted);
     cursor: not-allowed;
     opacity: 0.55;
   }
