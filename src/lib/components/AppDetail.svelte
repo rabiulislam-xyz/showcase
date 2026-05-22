@@ -14,6 +14,19 @@
   let descLoading = $state(false);
   let description = $state<string | null>(null);
 
+  let drawerEl: HTMLElement | undefined = $state();
+  let prevFocus: HTMLElement | null = null;
+
+  $effect(() => {
+    if (app) {
+      prevFocus = document.activeElement as HTMLElement | null;
+      drawerEl?.focus();
+    } else if (prevFocus) {
+      prevFocus.focus();
+      prevFocus = null;
+    }
+  });
+
   function close() {
     selected.set(null);
   }
@@ -86,6 +99,8 @@
     role="dialog"
     aria-modal="true"
     aria-label="{app.name} details"
+    tabindex="-1"
+    bind:this={drawerEl}
     transition:fly={{ x: 380, duration: 200 }}
   >
     <header class="head">
