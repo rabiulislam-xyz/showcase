@@ -28,15 +28,21 @@ pub struct App {
     pub protected_reason: Option<String>,
 }
 
-impl App {
-    /// Stable identifier: "{source}:{pkg_ref}".
-    pub fn make_uid(source: Source, pkg_ref: &str) -> String {
-        let s = match source {
+impl Source {
+    /// Lowercase id; matches the `serde(rename_all = "lowercase")` representation.
+    pub fn as_str(&self) -> &'static str {
+        match self {
             Source::Apt => "apt",
             Source::Flatpak => "flatpak",
             Source::Snap => "snap",
-        };
-        format!("{s}:{pkg_ref}")
+        }
+    }
+}
+
+impl App {
+    /// Stable identifier: "{source}:{pkg_ref}".
+    pub fn make_uid(source: Source, pkg_ref: &str) -> String {
+        format!("{}:{}", source.as_str(), pkg_ref)
     }
 }
 
