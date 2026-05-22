@@ -172,6 +172,22 @@ fn resolve_icon_name(
     None
 }
 
+/// Verify a uid corresponds to an installed, removable app. Defense against a
+/// renderer requesting removal of an app that isn't shown / isn't removable.
+pub fn validate_uninstall(source: Source, pkg_ref: &str, apps: &[App]) -> Result<(), AppError> {
+    match apps.iter().find(|a| a.source == source && a.pkg_ref == pkg_ref) {
+        None => Err(AppError::NotFound(format!(
+            "{source:?}:{pkg_ref} is not an installed app"
+        ))),
+        Some(a) if !a.removable => Err(AppError::Protected(
+            a.protected_reason
+                .clone()
+                .unwrap_or_else(|| "not removable".into()),
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
 #[tauri::command]
 pub fn list_apps() -> AppList {
     let agg = enumerate();
@@ -236,6 +252,13 @@ pub async fn uninstall_app(uid: String) -> Result<(), AppError> {
     tauri::async_runtime::spawn_blocking(move || {
         let runner = SystemRunner;
 
+        // Authoritative server-side check: the app must actually be in the
+        // current enumerated set AND be removable. Defends against a renderer
+        // requesting removal of something it isn't allowed to (the rest below
+        // stay as defense-in-depth).
+        let agg = enumerate();
+        validate_uninstall(source, &pkg, &agg.apps)?;
+
         // Dynamic apt-essential re-check (defense in depth).
         if source == Source::Apt && crate::uninstall::apt_is_essential(&runner, &pkg) {
             return Err(AppError::Protected(format!("{pkg} is an essential package")));
@@ -253,4 +276,68 @@ pub async fn uninstall_app(uid: String) -> Result<(), AppError> {
     })
     .await
     .map_err(|e| AppError::Backend(format!("join: {e}")))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app(source: Source, pkg_ref: &str, removable: bool, reason: Option<&str>) -> App {
+        App {
+            uid: App::make_uid(source, pkg_ref),
+            source,
+            name: pkg_ref.to_string(),
+            summary: None,
+            description: None,
+            version: None,
+            icon_path: None,
+            size_bytes: None,
+            install_date: None,
+            publisher: None,
+            categories: vec![],
+            exec: None,
+            pkg_ref: pkg_ref.to_string(),
+            removable,
+            protected_reason: reason.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn validate_uninstall_ok_when_found_and_removable() {
+        let apps = vec![app(Source::Apt, "gimp", true, None)];
+        assert!(validate_uninstall(Source::Apt, "gimp", &apps).is_ok());
+    }
+
+    #[test]
+    fn validate_uninstall_not_found_when_absent() {
+        let apps = vec![app(Source::Apt, "gimp", true, None)];
+        // Wrong source, same pkg_ref → still NotFound.
+        assert!(matches!(
+            validate_uninstall(Source::Snap, "gimp", &apps),
+            Err(AppError::NotFound(_))
+        ));
+        // Unknown pkg_ref → NotFound.
+        assert!(matches!(
+            validate_uninstall(Source::Apt, "ghost", &apps),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn validate_uninstall_protected_when_not_removable() {
+        let apps = vec![app(Source::Apt, "bash", false, Some("essential package"))];
+        match validate_uninstall(Source::Apt, "bash", &apps) {
+            Err(AppError::Protected(reason)) => assert_eq!(reason, "essential package"),
+            other => panic!("expected Protected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_uninstall_protected_falls_back_to_default_reason() {
+        let apps = vec![app(Source::Apt, "bash", false, None)];
+        match validate_uninstall(Source::Apt, "bash", &apps) {
+            Err(AppError::Protected(reason)) => assert_eq!(reason, "not removable"),
+            other => panic!("expected Protected, got {other:?}"),
+        }
+    }
 }
