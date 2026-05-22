@@ -4,10 +4,18 @@ use crate::model::{AppError, Source};
 /// Arg-array form only — never a shell string (injection-safe).
 pub fn build_uninstall(source: Source, pkg_ref: &str) -> (&'static str, Vec<String>) {
     match source {
-        // pkcon (PackageKit) raises the polkit dialog; -y auto-confirms PackageKit's
-        // transaction, which may include removing reverse-dependencies. Root is still
-        // gated by polkit; PackageKit refuses Essential packages.
-        Source::Apt => ("pkcon", vec!["-y".into(), "remove".into(), pkg_ref.into()]),
+        // pkexec runs apt-get as root after the GUI polkit prompt. apt-get refuses
+        // Essential packages and -y auto-confirms (may remove reverse-dependencies).
+        Source::Apt => (
+            "pkexec",
+            vec![
+                "apt-get".into(),
+                "-y".into(),
+                "remove".into(),
+                pkg_ref.into(),
+            ],
+        ),
+        // flatpak handles its own polkit (system installs) and needs no root for user installs.
         Source::Flatpak => (
             "flatpak",
             vec![
@@ -17,7 +25,11 @@ pub fn build_uninstall(source: Source, pkg_ref: &str) -> (&'static str, Vec<Stri
                 pkg_ref.into(),
             ],
         ),
-        Source::Snap => ("snap", vec!["remove".into(), pkg_ref.into()]),
+        // pkexec runs snap as root (snapd then needs no polkit).
+        Source::Snap => (
+            "pkexec",
+            vec!["snap".into(), "remove".into(), pkg_ref.into()],
+        ),
     }
 }
 
@@ -80,10 +92,10 @@ mod tests {
     // ── build_uninstall ───────────────────────────────────────────────────────
 
     #[test]
-    fn apt_maps_to_pkcon_remove() {
+    fn apt_maps_to_pkexec_apt_get_remove() {
         let (prog, args) = build_uninstall(Source::Apt, "gimp");
-        assert_eq!(prog, "pkcon");
-        assert_eq!(args, vec!["-y", "remove", "gimp"]);
+        assert_eq!(prog, "pkexec");
+        assert_eq!(args, vec!["apt-get", "-y", "remove", "gimp"]);
     }
 
     #[test]
@@ -94,10 +106,10 @@ mod tests {
     }
 
     #[test]
-    fn snap_maps_to_snap_remove() {
+    fn snap_maps_to_pkexec_snap_remove() {
         let (prog, args) = build_uninstall(Source::Snap, "firefox");
-        assert_eq!(prog, "snap");
-        assert_eq!(args, vec!["remove", "firefox"]);
+        assert_eq!(prog, "pkexec");
+        assert_eq!(args, vec!["snap", "remove", "firefox"]);
     }
 
     /// Shell-metacharacter pkg_ref must stay as a single verbatim argument — no injection.
@@ -105,19 +117,19 @@ mod tests {
     fn pkg_ref_with_shell_metacharacters_is_single_arg() {
         let evil = "a; rm -rf ~";
         let (prog, args) = build_uninstall(Source::Apt, evil);
-        assert_eq!(prog, "pkcon");
-        // The evil string must appear as exactly one element, unmodified.
-        assert_eq!(args.len(), 3);
-        assert_eq!(args[2], evil);
+        assert_eq!(prog, "pkexec");
+        // The evil string must appear as exactly one element at the end, unmodified.
+        assert_eq!(args.len(), 4);
+        assert_eq!(args.last().unwrap(), evil);
     }
 
     #[test]
     fn snap_injection_safety() {
         let evil = "$(reboot)";
         let (prog, args) = build_uninstall(Source::Snap, evil);
-        assert_eq!(prog, "snap");
-        assert_eq!(args.len(), 2);
-        assert_eq!(args[1], evil);
+        assert_eq!(prog, "pkexec");
+        assert_eq!(args.len(), 3);
+        assert_eq!(args.last().unwrap(), evil);
     }
 
     // ── protected_reason ─────────────────────────────────────────────────────
