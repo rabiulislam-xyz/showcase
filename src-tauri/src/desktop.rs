@@ -13,6 +13,15 @@ pub struct DesktopEntry {
     pub entry_type: Option<String>,
 }
 
+impl DesktopEntry {
+    /// True if this entry represents a launchable, visible application.
+    pub fn should_display(&self) -> bool {
+        self.entry_type.as_deref() == Some("Application")
+            && !self.no_display
+            && !self.hidden
+    }
+}
+
 /// Parse the `[Desktop Entry]` group only. Localized keys (e.g. `Name[de]`)
 /// are ignored in favor of the unlocalized key. Unknown keys are skipped.
 pub fn parse_entry(path: PathBuf, text: &str) -> DesktopEntry {
@@ -80,5 +89,20 @@ mod tests {
         assert_eq!(e.entry_type.as_deref(), Some("Application"));
         assert_eq!(e.categories, vec!["Settings", "Utility"]);
         assert!(!e.no_display && !e.hidden);
+    }
+
+    #[test]
+    fn hidden_or_nodisplay_or_nonapp_excluded() {
+        let app = parse_entry(PathBuf::from("/a"), "[Desktop Entry]\nType=Application\n");
+        assert!(app.should_display());
+
+        let nodisp = parse_entry(PathBuf::from("/b"), "[Desktop Entry]\nType=Application\nNoDisplay=true\n");
+        assert!(!nodisp.should_display());
+
+        let hidden = parse_entry(PathBuf::from("/c"), "[Desktop Entry]\nType=Application\nHidden=true\n");
+        assert!(!hidden.should_display());
+
+        let link = parse_entry(PathBuf::from("/d"), "[Desktop Entry]\nType=Link\n");
+        assert!(!link.should_display());
     }
 }
