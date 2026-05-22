@@ -1,4 +1,4 @@
-import { writable, derived } from "svelte/store";
+import { writable, derived, get } from "svelte/store";
 import type { App } from "./types";
 import { listApps } from "./api";
 import { filterAndSort } from "./filter";
@@ -37,4 +37,35 @@ export async function loadApps(): Promise<void> {
     errorMsg.set(e instanceof Error ? e.message : String(e));
     status.set("error");
   }
+}
+
+/** Remove an app from the list; clear selection if it was the removed app. */
+export function removeApp(uid: string): void {
+  apps.update((list) => list.filter((a) => a.uid !== uid));
+  // Clear selected if the removed app was open in the detail drawer.
+  if (get(selected)?.uid === uid) {
+    selected.set(null);
+  }
+}
+
+// --- Toast store ---
+
+export interface Toast {
+  id: number;
+  kind: "success" | "error";
+  msg: string;
+}
+
+let _nextToastId = 0;
+
+export const toasts = writable<Toast[]>([]);
+
+export function pushToast(kind: "success" | "error", msg: string): void {
+  const id = _nextToastId++;
+  toasts.update((list) => [...list, { id, kind, msg }]);
+  setTimeout(() => dismissToast(id), 4000);
+}
+
+export function dismissToast(id: number): void {
+  toasts.update((list) => list.filter((t) => t.id !== id));
 }

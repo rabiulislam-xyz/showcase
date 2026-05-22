@@ -8,3 +8,6 @@ export const getAppDetails = (uid: string): Promise<string | null> =>
 
 export const iconSrc = (app: App): string | null =>
   app.icon_path ? convertFileSrc(app.icon_path) : null;
+
+export const uninstallApp = (uid: string): Promise<void> =>
+  invoke<void>("uninstall_app", { uid });
