@@ -10,7 +10,9 @@
 ![Rust](https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-![Showcase screenshot](docs/screenshot.png)
+![Showcase — browse every installed app](docs/screenshot.png)
+
+![Showcase — app details and one-click uninstall](docs/screenshot-detail.png)
 
 </div>
 
