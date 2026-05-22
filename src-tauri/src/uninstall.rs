@@ -58,7 +58,7 @@ pub fn classify_error(stderr: &str) -> AppError {
 /// Returns true iff dpkg considers this package essential.
 /// Defense-in-depth check before any privileged apt removal.
 pub fn apt_is_essential(runner: &dyn crate::runner::CommandRunner, pkg: &str) -> bool {
-    match runner.run("dpkg-query", &["-W", &format!("-f=${{Essential}}"), pkg]) {
+    match runner.run("dpkg-query", &["-W", "-f=${Essential}", pkg]) {
         Ok(out) => out.trim() == "yes",
         Err(_) => false,
     }

@@ -3,7 +3,7 @@ use crate::desktop;
 use crate::details;
 use crate::dpkg;
 use crate::icons;
-use crate::model::{App, AppList, Source};
+use crate::model::{App, AppError, AppList, Source};
 use crate::runner::{CommandRunner, SystemRunner};
 use crate::sources::{apt, flatpak, snap};
 use std::collections::HashMap;
@@ -209,4 +209,48 @@ pub fn get_app_details(uid: String) -> Option<String> {
         "snap" => crate::snapd::get_snap_description(pkg_ref),
         _ => None,
     }
+}
+
+/// Remove an installed app identified by `uid` ("source:pkg_ref").
+///
+/// Guards fire before any privileged call; the heavy work runs off the async
+/// thread via `spawn_blocking` so the Tauri runtime is not stalled.
+#[tauri::command]
+pub async fn uninstall_app(uid: String) -> Result<(), AppError> {
+    let (src, pkg) = uid
+        .split_once(':')
+        .ok_or_else(|| AppError::NotFound(uid.clone()))?;
+    let source = match src {
+        "apt" => Source::Apt,
+        "flatpak" => Source::Flatpak,
+        "snap" => Source::Snap,
+        _ => return Err(AppError::NotFound(uid.clone())),
+    };
+    let pkg = pkg.to_string();
+
+    // Static guard (snap base/core packages) — runs before any privileged call.
+    if let Some(r) = crate::uninstall::protected_reason(source, &pkg) {
+        return Err(AppError::Protected(r));
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let runner = SystemRunner;
+
+        // Dynamic apt-essential re-check (defense in depth).
+        if source == Source::Apt && crate::uninstall::apt_is_essential(&runner, &pkg) {
+            return Err(AppError::Protected(format!("{pkg} is an essential package")));
+        }
+
+        let (prog, args) = crate::uninstall::build_uninstall(source, &pkg);
+        let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+
+        CommandRunner::run(&runner, prog, &argv)
+            .map(|_| ())
+            .map_err(|e| match e {
+                AppError::Backend(msg) => crate::uninstall::classify_error(&msg),
+                other => other,
+            })
+    })
+    .await
+    .map_err(|e| AppError::Backend(format!("join: {e}")))?
 }
