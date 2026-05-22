@@ -4,7 +4,9 @@ use crate::model::{AppError, Source};
 /// Arg-array form only — never a shell string (injection-safe).
 pub fn build_uninstall(source: Source, pkg_ref: &str) -> (&'static str, Vec<String>) {
     match source {
-        // pkcon (PackageKit) raises the polkit dialog; -y auto-confirms PK's own prompt.
+        // pkcon (PackageKit) raises the polkit dialog; -y auto-confirms PackageKit's
+        // transaction, which may include removing reverse-dependencies. Root is still
+        // gated by polkit; PackageKit refuses Essential packages.
         Source::Apt => ("pkcon", vec!["-y".into(), "remove".into(), pkg_ref.into()]),
         Source::Flatpak => (
             "flatpak",
@@ -41,14 +43,20 @@ pub fn protected_reason(source: Source, pkg_ref: &str) -> Option<String> {
     }
 }
 
-/// Map a failed removal's stderr/exit into a typed error.
+/// Map a failed removal's stderr into a typed error. Anchored to the phrases
+/// polkit/pkcon emit when the user cancels or auth fails, to avoid mislabeling
+/// unrelated backend failures that merely contain "cancel".
 pub fn classify_error(stderr: &str) -> AppError {
     let s = stderr.to_lowercase();
-    if s.contains("not authorized")
-        || s.contains("authentication")
-        || s.contains("cancel")
-        || s.contains("dismiss")
-    {
+    const AUTH_PHRASES: [&str; 6] = [
+        "not authorized",
+        "authentication failed",
+        "authentication is required",
+        "authentication required",
+        "request dismissed",
+        "operation was cancelled",
+    ];
+    if AUTH_PHRASES.iter().any(|p| s.contains(p)) {
         AppError::PermissionDenied("authentication was cancelled or denied".into())
     } else {
         AppError::Backend(stderr.trim().to_string())
@@ -144,26 +152,48 @@ mod tests {
 
     #[test]
     fn not_authorized_maps_to_permission_denied() {
-        let err = classify_error("Not authorized");
+        // Real polkit output: "Not authorized to perform operation"
+        let err = classify_error("Not authorized to perform operation");
         assert!(matches!(err, AppError::PermissionDenied(_)));
     }
 
     #[test]
-    fn authentication_maps_to_permission_denied() {
-        let err = classify_error("authentication failed");
+    fn authentication_failed_maps_to_permission_denied() {
+        // pkcon/polkit: "Authentication failed"
+        let err = classify_error("Authentication failed");
         assert!(matches!(err, AppError::PermissionDenied(_)));
     }
 
     #[test]
-    fn cancel_maps_to_permission_denied() {
-        let err = classify_error("Operation was cancelled by user");
+    fn operation_was_cancelled_maps_to_permission_denied() {
+        // polkit dialog closed: "GDBus.Error:org.freedesktop.PolicyKit1.Error.Cancelled: Operation was cancelled"
+        let err = classify_error(
+            "GDBus.Error:org.freedesktop.PolicyKit1.Error.Cancelled: Operation was cancelled",
+        );
         assert!(matches!(err, AppError::PermissionDenied(_)));
     }
 
     #[test]
-    fn dismiss_maps_to_permission_denied() {
-        let err = classify_error("Dialog was dismissed");
+    fn request_dismissed_maps_to_permission_denied() {
+        // polkit: "polkit: Request dismissed"
+        let err = classify_error("polkit: Request dismissed");
         assert!(matches!(err, AppError::PermissionDenied(_)));
+    }
+
+    #[test]
+    fn apt_package_not_found_maps_to_backend() {
+        let err = classify_error("E: Unable to locate package foo");
+        assert!(matches!(err, AppError::Backend(_)));
+    }
+
+    /// Regression: a backend error that contains the word "cancelled" in a different
+    /// context must NOT be mislabeled as PermissionDenied.
+    #[test]
+    fn transaction_cancelled_due_to_dep_conflict_maps_to_backend() {
+        let err = classify_error(
+            "Error: transaction cancelled due to dependency conflict with libssl",
+        );
+        assert!(matches!(err, AppError::Backend(_)));
     }
 
     #[test]
