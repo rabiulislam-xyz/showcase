@@ -1,21 +1,20 @@
 <script lang="ts">
+  import { humanSize } from "$lib/format";
   import Spinner from "./Spinner.svelte";
 
   let {
     open,
-    title,
-    message,
-    confirmLabel = "Confirm",
-    destructive = false,
+    name,
+    sizeBytes,
+    aptNote = false,
     busy = false,
     onconfirm,
     oncancel,
   }: {
     open: boolean;
-    title: string;
-    message: string;
-    confirmLabel?: string;
-    destructive?: boolean;
+    name: string;
+    sizeBytes: number | null;
+    aptNote?: boolean;
     busy?: boolean;
     onconfirm: () => void;
     oncancel: () => void;
@@ -35,6 +34,11 @@
       prevFocus.focus();
       prevFocus = null;
     }
+  });
+
+  let body = $derived.by(() => {
+    const freed = sizeBytes ? ` This frees about ${humanSize(sizeBytes)} of disk space.` : "";
+    return `This removes the application from your system.${freed} You may be asked for your password to continue.`;
   });
 
   function handleKeydown(e: KeyboardEvent) {
@@ -73,155 +77,182 @@
     }
   }
 
-  function handleBackdrop() {
-    if (!busy) oncancel();
+  function handleBackdrop(e: MouseEvent) {
+    if (e.target === e.currentTarget && !busy) oncancel();
   }
 </script>
 
-{#if open}
-  <!-- Backdrop -->
-  <div
-    class="backdrop"
-    aria-hidden="true"
-    onclick={handleBackdrop}
-  ></div>
-
-  <div
-    class="dialog"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="cd-title"
-    aria-describedby="cd-message"
-    tabindex="-1"
-    bind:this={dialogEl}
-    onkeydown={handleKeydown}
-  >
-    <h2 id="cd-title" class="title">{title}</h2>
-    <p id="cd-message" class="message">{message}</p>
-
-    <div class="actions">
-      <button
-        type="button"
-        class="btn-cancel"
-        disabled={busy}
-        onclick={oncancel}
-      >
-        Cancel
-      </button>
-      <button
-        type="button"
-        class="btn-confirm"
-        class:destructive
-        disabled={busy}
-        bind:this={confirmBtn}
-        onclick={onconfirm}
-      >
-        {#if busy}
-          <Spinner size={16} />
-        {/if}
-        {confirmLabel}
-      </button>
+<div
+  class="modal-scrim"
+  class:open
+  aria-hidden={!open}
+  onclick={handleBackdrop}
+>
+  {#if open}
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cd-title"
+      aria-describedby="cd-message"
+      tabindex="-1"
+      bind:this={dialogEl}
+      onkeydown={handleKeydown}
+    >
+      <div class="modal-icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+      </div>
+      <h2 id="cd-title">Uninstall {name}?</h2>
+      <p id="cd-message">{body}</p>
+      {#if aptNote}
+        <div class="apt-note">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+          <span>Some dependent packages installed with this app may also be removed.</span>
+        </div>
+      {/if}
+      <div class="modal-actions">
+        <button class="btn btn-ghost" disabled={busy} onclick={oncancel}>
+          Cancel
+        </button>
+        <button
+          class="btn btn-destructive-solid"
+          disabled={busy}
+          bind:this={confirmBtn}
+          onclick={onconfirm}
+        >
+          {#if busy}
+            <Spinner size={16} />
+          {/if}
+          Uninstall
+        </button>
+      </div>
     </div>
-  </div>
-{/if}
+  {/if}
+</div>
 
 <style>
-  .backdrop {
+  .modal-scrim {
     position: fixed;
     inset: 0;
-    z-index: 60;
-    background: rgba(0, 0, 0, 0.45);
+    background: rgba(20, 20, 19, 0.32);
+    backdrop-filter: blur(3px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms var(--ease);
   }
-
-  .dialog {
-    position: fixed;
-    z-index: 61;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: min(420px, calc(100% - 32px));
+  .modal-scrim.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  :global([data-theme="dark"]) .modal-scrim {
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .modal {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    box-shadow: var(--shadow-lg);
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+    border-radius: 14px;
+    box-shadow: 0 16px 48px rgba(20, 20, 19, 0.18);
+    width: 100%;
+    max-width: 440px;
+    padding: 28px 28px 20px;
+    transform: translateY(8px) scale(0.98);
+    transition: transform 180ms var(--ease);
   }
-
-  .title {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--text);
-    line-height: 1.3;
+  .modal-scrim.open .modal {
+    transform: translateY(0) scale(1);
   }
-
-  .message {
-    margin: 0;
-    font-size: 14px;
-    color: var(--muted);
-    line-height: 1.55;
+  :global([data-theme="dark"]) .modal {
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
   }
-
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 4px;
-  }
-
-  .btn-cancel,
-  .btn-confirm {
+  .modal-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--destructive-tint);
+    color: var(--destructive);
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
-    border-radius: var(--radius-ctrl);
-    font: inherit;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-      background-color var(--transition),
-      border-color var(--transition),
-      color var(--transition),
-      opacity var(--transition);
+    justify-content: center;
+    margin-bottom: 16px;
   }
-
-  .btn-cancel {
-    border: 1px solid var(--border);
-    background: var(--surface);
+  .modal h2 {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
     color: var(--text);
   }
-  .btn-cancel:hover:not(:disabled) {
-    background: var(--surface-hover);
+  .modal p {
+    margin: 0 0 12px;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .apt-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    background: var(--apt-tint);
+    border: 1px solid color-mix(in oklab, var(--apt) 30%, transparent);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    color: var(--text);
+    margin: 4px 0 18px;
+  }
+  .apt-note svg {
+    color: var(--apt);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 8px;
   }
 
-  .btn-confirm {
-    border: 1px solid var(--accent);
-    background: var(--accent);
-    color: #fff;
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 16px;
+    height: 38px;
+    border-radius: var(--radius-ctrl);
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 150ms var(--ease);
+    border: 1px solid transparent;
+    white-space: nowrap;
   }
-  .btn-confirm:hover:not(:disabled) {
-    background: var(--accent-hover);
-    border-color: var(--accent-hover);
-  }
-
-  .btn-confirm.destructive {
-    border-color: var(--destructive);
-    background: var(--destructive);
-    color: #fff;
-  }
-  .btn-confirm.destructive:hover:not(:disabled) {
-    /* Darken destructive slightly on hover */
-    filter: brightness(0.9);
-  }
-
-  .btn-cancel:disabled,
-  .btn-confirm:disabled {
-    opacity: 0.55;
+  .btn:disabled {
     cursor: not-allowed;
+    opacity: 0.7;
+  }
+  .btn-ghost {
+    color: var(--text-muted);
+    border-color: var(--border);
+    background: var(--surface);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+  }
+  .btn-destructive-solid {
+    color: #fff;
+    background: var(--destructive);
+    border-color: var(--destructive);
+  }
+  .btn-destructive-solid:hover:not(:disabled) {
+    background: var(--destructive-hover);
+    border-color: var(--destructive-hover);
   }
 </style>
