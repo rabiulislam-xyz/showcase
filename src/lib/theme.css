@@ -1,77 +1,62 @@
-/* Adwaita-aligned design tokens for Showcase.
-   Light is the default; dark via prefers-color-scheme. */
+/* Design tokens for Showcase.
+   Light is the default; dark via the [data-theme="dark"] attribute on <html>. */
 
 :root {
-  --accent: #3584e4;
-  --accent-hover: #1c71d8;
-  --destructive: #e01b24;
-
-  /* Per-source brand colors */
-  --source-apt: #3584e4;
-  --source-flatpak: #1a8fa6;
-  --source-snap: #e95420;
-
-  /* Surfaces & text (light) */
-  --bg: #fafafb;
-  --surface: #ffffff;
-  --surface-hover: #f2f2f4;
-  --border: #e0e0e0;
-  --text: #2e3436;
-  --muted: #5e5c64;
-
-  /* Warning (amber) */
-  --warning-bg: #fdf6e3;
-  --warning-border: #f0d28a;
-  --warning-text: #7a5a00;
-
-  /* Geometry */
+  --bg: #FAF9F5;
+  --surface: #FFFFFF;
+  --surface-2: #F5F3EC;
+  --border: #E8E6DC;
+  --border-strong: #D9D6C8;
+  --text: #141413;
+  --text-muted: #6B6A63;
+  --text-faint: #9C9A91;
+  --accent: #D97757;
+  --accent-hover: #C15F3C;
+  --accent-tint: rgba(217, 119, 87, 0.10);
+  --destructive: #BC4B39;
+  --destructive-hover: #A33D2D;
+  --destructive-tint: rgba(188, 75, 57, 0.08);
+  --apt: #B07A2B;
+  --apt-tint: rgba(176, 122, 43, 0.10);
+  --flatpak: #4E837F;
+  --flatpak-tint: rgba(78, 131, 127, 0.10);
+  --snap: #8E5A85;
+  --snap-tint: rgba(142, 90, 133, 0.10);
+  --shadow: 0 1px 2px rgba(20, 20, 19, 0.04), 0 8px 24px rgba(20, 20, 19, 0.06);
+  --shadow-drawer: -8px 0 32px rgba(20, 20, 19, 0.08);
+  --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
   --radius-card: 12px;
   --radius-ctrl: 8px;
-  --radius-pill: 999px;
-
-  /* Elevation — kept subtle, GNOME-like */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 1px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.10);
-
-  /* Translucent header backdrop */
-  --header-bg: rgba(255, 255, 255, 0.78);
-
-  --transition: 150ms cubic-bezier(0.2, 0, 0.2, 1);
-
-  --font: "Cantarell", "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "Source Code Pro", "Cascadia Code",
-    ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius-sm: 6px;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --serif: 'Source Serif 4', 'Tiempos', Georgia, 'Times New Roman', serif;
+  --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --accent: #3584e4;
-    --accent-hover: #62a0ea;
-    --destructive: #ff7b81;
-
-    --source-apt: #62a0ea;
-    --source-flatpak: #33c7e0;
-    --source-snap: #ff7847;
-
-    --bg: #1e1e1e;
-    --surface: #2d2d2d;
-    --surface-hover: #383838;
-    --border: #3a3a3a;
-    --text: #deddda;
-    --muted: #9a9996;
-
-    --warning-bg: #36300f;
-    --warning-border: #6b5d1f;
-    --warning-text: #f0d28a;
-
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.45);
-    --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
-
-    --header-bg: rgba(30, 30, 30, 0.78);
-  }
+[data-theme="dark"] {
+  --bg: #1F1E1C;
+  --surface: #262522;
+  --surface-2: #2D2C28;
+  --border: #34322E;
+  --border-strong: #44423D;
+  --text: #F5F4EE;
+  --text-muted: #A6A39B;
+  --text-faint: #75736B;
+  --accent: #D97757;
+  --accent-hover: #E68A6F;
+  --accent-tint: rgba(217, 119, 87, 0.14);
+  --destructive: #D5604C;
+  --destructive-hover: #E47263;
+  --destructive-tint: rgba(213, 96, 76, 0.12);
+  --apt: #D4A35E;
+  --apt-tint: rgba(212, 163, 94, 0.14);
+  --flatpak: #7CB3AE;
+  --flatpak-tint: rgba(124, 179, 174, 0.14);
+  --snap: #BD8FB4;
+  --snap-tint: rgba(189, 143, 180, 0.14);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-drawer: -8px 0 32px rgba(0, 0, 0, 0.5);
 }
 
 *,
@@ -84,58 +69,53 @@ html,
 body {
   margin: 0;
   padding: 0;
-  height: 100%;
 }
 
 body {
+  font-family: var(--sans);
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font);
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 200ms var(--ease), color 200ms var(--ease);
+  min-height: 100vh;
 }
 
-/* Smooth, scoped transitions on interactive elements only —
-   avoids janky transitions on layout/color-scheme changes. */
-button,
-input,
-select,
-a {
-  transition:
-    background-color var(--transition),
-    border-color var(--transition),
-    color var(--transition),
-    box-shadow var(--transition),
-    transform var(--transition);
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+input {
+  font-family: inherit;
+  color: inherit;
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: var(--radius-sm);
 }
 
 /* Styled scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: var(--border-strong) transparent;
 }
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: var(--radius-pill);
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
-  background-clip: padding-box;
-  border: 2px solid transparent;
+  background: var(--border-strong);
+  border-radius: 4px;
 }

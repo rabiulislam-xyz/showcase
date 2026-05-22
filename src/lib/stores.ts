@@ -48,6 +48,50 @@ export function removeApp(uid: string): void {
   }
 }
 
+// --- Theme store ---
+
+export type Theme = "light" | "dark";
+
+const THEME_KEY = "showcase-theme";
+
+export const theme = writable<Theme>("light");
+
+/** Apply a theme to <html> via the data-theme attribute (SSR-safe). */
+function applyTheme(t: Theme): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.dataset.theme = t;
+}
+
+/** Resolve the initial theme from storage, falling back to OS preference. */
+export function initTheme(): void {
+  let initial: Theme = "light";
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "light" || saved === "dark") {
+      initial = saved;
+    } else if (typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches) {
+      initial = "dark";
+    }
+  } catch {
+    // localStorage/matchMedia unavailable — keep the light default.
+  }
+  theme.set(initial);
+  applyTheme(initial);
+}
+
+export function toggleTheme(): void {
+  theme.update((current) => {
+    const next: Theme = current === "dark" ? "light" : "dark";
+    applyTheme(next);
+    try {
+      localStorage.setItem(THEME_KEY, next);
+    } catch {
+      // Persistence is best-effort; ignore storage failures.
+    }
+    return next;
+  });
+}
+
 // --- Toast store ---
 
 export interface Toast {
