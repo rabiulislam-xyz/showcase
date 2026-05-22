@@ -3,23 +3,17 @@
   import AppCard from "./AppCard.svelte";
 </script>
 
-<div class="grid" role="list">
+<div class="grid">
   {#each $visibleApps as app (app.uid)}
-    <div role="listitem">
-      <AppCard {app} />
-    </div>
+    <AppCard {app} />
   {/each}
 </div>
 
 <style>
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-    gap: 14px;
-    padding: 18px;
-  }
-
-  .grid > :global(div) {
-    display: flex;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+    align-items: stretch;
   }
 </style>
