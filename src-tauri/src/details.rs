@@ -1,8 +1,12 @@
 /// Extract the long description from `apt-cache show <pkg>` output.
 ///
-/// Finds the first `Description:` or `Description-en:` header, then collects
-/// the indented continuation lines underneath it. Leading space is stripped,
-/// and lines that are exactly "." (the apt paragraph separator) are dropped.
+/// Finds a `Description:` or `Description-en:` header, then collects the
+/// indented continuation lines underneath it. Leading space is stripped, and
+/// lines that are exactly "." (the apt paragraph separator) are dropped.
+///
+/// `apt-cache show` can emit several stanzas (one per available version). If the
+/// first stanza's Description has no long body, scanning continues into the
+/// later stanzas before giving up.
 pub fn parse_apt_description(show_output: &str) -> Option<String> {
     let mut lines_out: Vec<String> = Vec::new();
     let mut in_desc = false;
@@ -29,20 +33,30 @@ pub fn parse_apt_description(show_output: &str) -> Option<String> {
                 lines_out.push(trimmed.to_string());
             }
         } else {
-            // A non-indented line ends the description block.
-            break;
+            // A non-indented line ends this Description block. If we collected a
+            // long description, we're done; otherwise keep scanning subsequent
+            // stanzas for one that has a non-empty body.
+            if collected_long_description(&lines_out).is_some() {
+                break;
+            }
+            lines_out.clear();
+            in_desc = false;
         }
     }
 
-    // Drop trailing blank lines introduced by " ." separators.
-    while lines_out.last().map(|s: &String| s.is_empty()).unwrap_or(false) {
-        lines_out.pop();
-    }
+    collected_long_description(&lines_out)
+}
 
-    if lines_out.is_empty() {
+/// Trim trailing blank lines (from " ." separators) and join, or None if empty.
+fn collected_long_description(lines: &[String]) -> Option<String> {
+    let mut end = lines.len();
+    while end > 0 && lines[end - 1].is_empty() {
+        end -= 1;
+    }
+    if end == 0 {
         None
     } else {
-        Some(lines_out.join("\n"))
+        Some(lines[..end].join("\n"))
     }
 }
 
@@ -121,6 +135,27 @@ Homepage: https://example.com
         assert!(desc.contains("First long line."), "got: {desc}");
         assert!(desc.contains("Second long line."), "got: {desc}");
         assert!(!desc.contains("This should NOT"), "got: {desc}");
+    }
+
+    #[test]
+    fn scans_later_stanza_when_first_has_no_long_description() {
+        // apt-cache show can emit multiple stanzas (e.g. several versions). The
+        // first stanza here has only a short description on the header line and
+        // no indented continuation; the long description lives in the second.
+        let input = "\
+Package: gimp
+Version: 2.10.0
+Description: image editor
+
+Package: gimp
+Version: 2.10.34
+Description: GNU Image Manipulation Program
+ The GIMP is an advanced picture editor.
+ It can be used to edit photos and compose images.
+";
+        let desc = parse_apt_description(input).unwrap();
+        assert!(desc.contains("advanced picture editor"), "got: {desc}");
+        assert!(desc.contains("compose images"), "got: {desc}");
     }
 
     #[test]
