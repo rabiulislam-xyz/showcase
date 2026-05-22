@@ -67,6 +67,26 @@ pub fn parse_entry(path: PathBuf, text: &str) -> DesktopEntry {
     entry
 }
 
+/// Scan one directory, returning displayable entries from `*.desktop` files.
+/// Unreadable files are skipped (logged by the caller if desired).
+pub fn scan_dir(dir: &std::path::Path) -> Vec<DesktopEntry> {
+    let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut out = Vec::new();
+    for entry in read.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            let parsed = parse_entry(path, &text);
+            if parsed.should_display() {
+                out.push(parsed);
+            }
+        }
+    }
+    out
+}
+
 /// Classify which package source owns a `.desktop` file by its location.
 pub fn classify_source(path: &std::path::Path) -> Source {
     let p = path.to_string_lossy();
@@ -134,5 +154,15 @@ mod tests {
             classify_source(Path::new("/usr/share/applications/gedit.desktop")),
             Source::Apt
         );
+    }
+
+    #[test]
+    fn scan_dir_returns_only_displayable_desktop_files() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/apps");
+        let entries = scan_dir(&dir);
+        let names: Vec<_> = entries.iter().filter_map(|e| e.name.clone()).collect();
+        assert!(names.contains(&"Good App".to_string()));
+        assert!(!names.contains(&"Hidden App".to_string()));
+        assert_eq!(entries.len(), 1);
     }
 }
