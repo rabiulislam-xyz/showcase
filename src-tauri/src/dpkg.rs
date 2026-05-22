@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::path::Path;
+
 /// One package's fields from `dpkg-query -W -f='${Package}\t${Version}\t${Installed-Size}\t${Essential}\n'`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DpkgInfo {
@@ -23,15 +26,12 @@ pub fn parse_query(output: &str) -> Vec<DpkgInfo> {
             Some(DpkgInfo {
                 package: package.to_string(),
                 version: version.to_string(),
-                size_bytes: size_kib * 1024,
+                size_bytes: size_kib.saturating_mul(1024),
                 essential,
             })
         })
         .collect()
 }
-
-use std::collections::HashMap;
-use std::path::Path;
 
 /// Build a map of `installed file path → owning package` by reading the
 /// `*.list` files under a dpkg info dir (default `/var/lib/dpkg/info`).
