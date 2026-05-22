@@ -18,7 +18,14 @@ pub fn parse_query(output: &str) -> Vec<DpkgInfo> {
             let mut parts = line.split('\t');
             let package = parts.next()?.trim();
             let version = parts.next()?.trim();
-            let size_kib: u64 = parts.next()?.trim().parse().ok()?;
+            // Empty ${Installed-Size} means "unknown" → treat as 0, not a reason to
+            // drop the row (which would also discard the essential flag below).
+            let size_field = parts.next()?.trim();
+            let size_kib: u64 = if size_field.is_empty() {
+                0
+            } else {
+                size_field.parse().ok()?
+            };
             let essential = matches!(parts.next().map(str::trim), Some("yes"));
             if package.is_empty() {
                 return None;
@@ -73,6 +80,18 @@ mod tests {
         });
         assert_eq!(infos[1].package, "gedit");
         assert!(!infos[1].essential);
+    }
+
+    #[test]
+    fn empty_installed_size_keeps_row_with_zero_size() {
+        // An empty ${Installed-Size} must NOT drop the package — that would also
+        // lose its essential flag, making a protected metapackage look removable.
+        let infos = parse_query("foo\t1.0\t\tyes\n");
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0], DpkgInfo {
+            package: "foo".into(), version: "1.0".into(),
+            size_bytes: 0, essential: true,
+        });
     }
 
     #[test]
