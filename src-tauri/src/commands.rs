@@ -69,11 +69,14 @@ pub fn enumerate() -> Aggregated {
 ///      the human name matches).
 ///   2. For snap entries: the snap package name extracted from the filename stem
 ///      before the first '_' (e.g. `firefox_firefox.desktop` → `firefox`).
-///   3. For flatpak entries: the last dot-segment of the app-id encoded in the
-///      filename stem (e.g. `com.github.wwmm.easyeffects.desktop` → `easyeffects`).
+///   3. For flatpak entries: BOTH the full app-id (filename stem, e.g.
+///      `org.gnome.Calculator`) as the primary key AND the last dot-segment
+///      (e.g. `calculator`) as a fallback. The full app-id avoids collisions
+///      between apps that share a short segment (org.gnome.Calculator vs
+///      org.kde.Calculator).
 ///
 /// O(entries) build, O(1) per-app lookup.
-fn build_icon_lookup(
+pub(crate) fn build_icon_lookup(
     entries: &[desktop::DesktopEntry],
 ) -> HashMap<(Source, String), String> {
     let mut map: HashMap<(Source, String), String> = HashMap::new();
@@ -104,7 +107,12 @@ fn build_icon_lookup(
                 }
             }
             Source::Flatpak => {
-                // Flatpak desktop file stem is the app-id; last segment is the short name.
+                // Flatpak desktop file stem is the app-id. Key on the FULL app-id
+                // first (collision-free), then the short last segment as fallback.
+                if !stem.is_empty() {
+                    map.entry((Source::Flatpak, stem.to_lowercase()))
+                        .or_insert_with(|| icon.to_string());
+                }
                 if let Some(short) = stem.rsplit('.').next() {
                     if !short.is_empty() {
                         map.entry((Source::Flatpak, short.to_lowercase()))
@@ -142,7 +150,7 @@ fn resolve_icons(
 }
 
 /// Return the icon name for `app` by trying keys against `lookup`.
-fn resolve_icon_name(
+pub(crate) fn resolve_icon_name(
     app: &App,
     lookup: &HashMap<(Source, String), String>,
 ) -> Option<String> {
@@ -153,17 +161,22 @@ fn resolve_icon_name(
         return Some(icon.clone());
     }
 
-    // Key 2: source-specific heuristic.
-    let heuristic_key: Option<String> = match src {
-        Source::Snap => Some(app.pkg_ref.to_lowercase()),
-        Source::Flatpak => app
-            .pkg_ref
-            .rsplit('.')
-            .next()
-            .map(|s| s.to_lowercase()),
-        Source::Apt => None,
+    // Key 2: source-specific heuristic key(s), tried in priority order. For
+    // flatpak the FULL app-id is tried before the short last-segment so two
+    // apps sharing a short segment (org.gnome.Calculator / org.kde.Calculator)
+    // each resolve to their own icon instead of colliding.
+    let heuristic_keys: Vec<String> = match src {
+        Source::Snap => vec![app.pkg_ref.to_lowercase()],
+        Source::Flatpak => {
+            let mut keys = vec![app.pkg_ref.to_lowercase()];
+            if let Some(short) = app.pkg_ref.rsplit('.').next() {
+                keys.push(short.to_lowercase());
+            }
+            keys
+        }
+        Source::Apt => Vec::new(),
     };
-    if let Some(key) = heuristic_key {
+    for key in heuristic_keys {
         if let Some(icon) = lookup.get(&(src, key)) {
             return Some(icon.clone());
         }
@@ -339,5 +352,56 @@ mod tests {
             Err(AppError::Protected(reason)) => assert_eq!(reason, "not removable"),
             other => panic!("expected Protected, got {other:?}"),
         }
+    }
+
+    fn flatpak_entry(app_id: &str, icon: &str) -> desktop::DesktopEntry {
+        desktop::DesktopEntry {
+            // Path must contain "/flatpak/" so classify_source returns Flatpak,
+            // and the file stem is the app-id.
+            path: PathBuf::from(format!(
+                "/var/lib/flatpak/exports/share/applications/{app_id}.desktop"
+            )),
+            // Same human Name on purpose: forces resolution onto the app-id key,
+            // not the (also-colliding) Name= key.
+            name: Some("Calculator".into()),
+            comment: None,
+            icon: Some(icon.into()),
+            exec: None,
+            categories: vec![],
+            no_display: false,
+            hidden: false,
+            entry_type: Some("Application".into()),
+        }
+    }
+
+    #[test]
+    fn flatpak_same_short_segment_different_app_ids_resolve_to_own_icon() {
+        let entries = vec![
+            flatpak_entry("org.gnome.Calculator", "org.gnome.Calculator"),
+            flatpak_entry("org.kde.Calculator", "org.kde.Calculator"),
+        ];
+        let lookup = build_icon_lookup(&entries);
+
+        let gnome = app(Source::Flatpak, "org.gnome.Calculator", true, None);
+        let kde = app(Source::Flatpak, "org.kde.Calculator", true, None);
+
+        assert_eq!(
+            resolve_icon_name(&gnome, &lookup).as_deref(),
+            Some("org.gnome.Calculator")
+        );
+        assert_eq!(
+            resolve_icon_name(&kde, &lookup).as_deref(),
+            Some("org.kde.Calculator")
+        );
+    }
+
+    #[test]
+    fn flatpak_exact_name_match_still_resolves() {
+        let entries = vec![flatpak_entry("org.gnome.Calculator", "calc-icon")];
+        let lookup = build_icon_lookup(&entries);
+        // App whose name matches the entry Name= (case-insensitively).
+        let mut app = app(Source::Flatpak, "org.gnome.Calculator", true, None);
+        app.name = "CALCULATOR".into();
+        assert_eq!(resolve_icon_name(&app, &lookup).as_deref(), Some("calc-icon"));
     }
 }
