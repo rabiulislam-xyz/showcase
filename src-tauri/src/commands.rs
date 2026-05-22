@@ -2,7 +2,7 @@ use crate::aggregate::{self, Aggregated};
 use crate::desktop;
 use crate::dpkg;
 use crate::icons;
-use crate::model::{App, AppList};
+use crate::model::{App, AppList, Source};
 use crate::runner::SystemRunner;
 use crate::sources::{apt, flatpak, snap};
 use std::collections::HashMap;
@@ -61,23 +61,114 @@ pub fn enumerate() -> Aggregated {
     agg
 }
 
-/// Fill icon_path for each app using a name pulled from its desktop entry,
-/// resolving against a prebuilt name -> path index.
+/// Build a lookup map: (source, lowercase_key) -> icon_name.
+///
+/// Each desktop entry contributes up to three keys:
+///   1. Its `Name=` value lowercased (works for apt; also helps snap/flatpak when
+///      the human name matches).
+///   2. For snap entries: the snap package name extracted from the filename stem
+///      before the first '_' (e.g. `firefox_firefox.desktop` → `firefox`).
+///   3. For flatpak entries: the last dot-segment of the app-id encoded in the
+///      filename stem (e.g. `com.github.wwmm.easyeffects.desktop` → `easyeffects`).
+///
+/// O(entries) build, O(1) per-app lookup.
+fn build_icon_lookup(
+    entries: &[desktop::DesktopEntry],
+) -> HashMap<(Source, String), String> {
+    let mut map: HashMap<(Source, String), String> = HashMap::new();
+
+    for entry in entries {
+        let Some(icon) = entry.icon.as_deref() else { continue };
+        let source = desktop::classify_source(&entry.path);
+
+        // Key 1: lowercased human Name=.
+        if let Some(name) = entry.name.as_deref() {
+            map.entry((source, name.to_lowercase()))
+                .or_insert_with(|| icon.to_string());
+        }
+
+        let stem = entry
+            .path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+
+        match source {
+            Source::Snap => {
+                // snap desktop files are named `<snap>_<app>.desktop`.
+                let pkg = stem.split('_').next().unwrap_or(stem);
+                if !pkg.is_empty() {
+                    map.entry((Source::Snap, pkg.to_lowercase()))
+                        .or_insert_with(|| icon.to_string());
+                }
+            }
+            Source::Flatpak => {
+                // Flatpak desktop file stem is the app-id; last segment is the short name.
+                if let Some(short) = stem.rsplit('.').next() {
+                    if !short.is_empty() {
+                        map.entry((Source::Flatpak, short.to_lowercase()))
+                            .or_insert_with(|| icon.to_string());
+                    }
+                }
+            }
+            Source::Apt => {}
+        }
+    }
+
+    map
+}
+
+/// Fill icon_path for each app. Uses a two-level strategy:
+///   1. Exact case-insensitive name match via the pre-built lookup map.
+///   2. Source-specific heuristic key (snap pkg_ref, flatpak last dot-segment).
+///   3. Falls back to None if no key hits.
+///
+/// O(apps + entries) overall.
 fn resolve_icons(
     apps: &mut [App],
     entries: &[desktop::DesktopEntry],
     index: &HashMap<String, PathBuf>,
 ) {
+    let lookup = build_icon_lookup(entries);
+
     for app in apps.iter_mut() {
-        // Match by name to a desktop entry's Icon= value.
-        let icon_name = entries.iter().find_map(|e| {
-            let matches_name = e.name.as_deref() == Some(app.name.as_str());
-            if matches_name { e.icon.clone() } else { None }
-        });
+        // Try keys in priority order; first hit wins.
+        let icon_name = resolve_icon_name(app, &lookup);
         if let Some(name) = icon_name {
             app.icon_path = icons::resolve_with_index(&name, index);
         }
     }
+}
+
+/// Return the icon name for `app` by trying keys against `lookup`.
+fn resolve_icon_name(
+    app: &App,
+    lookup: &HashMap<(Source, String), String>,
+) -> Option<String> {
+    let src = app.source;
+
+    // Key 1: case-insensitive human name.
+    if let Some(icon) = lookup.get(&(src, app.name.to_lowercase())) {
+        return Some(icon.clone());
+    }
+
+    // Key 2: source-specific heuristic.
+    let heuristic_key: Option<String> = match src {
+        Source::Snap => Some(app.pkg_ref.to_lowercase()),
+        Source::Flatpak => app
+            .pkg_ref
+            .rsplit('.')
+            .next()
+            .map(|s| s.to_lowercase()),
+        Source::Apt => None,
+    };
+    if let Some(key) = heuristic_key {
+        if let Some(icon) = lookup.get(&(src, key)) {
+            return Some(icon.clone());
+        }
+    }
+
+    None
 }
 
 #[tauri::command]
