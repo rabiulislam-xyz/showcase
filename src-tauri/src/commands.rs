@@ -50,9 +50,9 @@ pub fn enumerate() -> Aggregated {
     let snap_handle = std::thread::spawn(snap::list);
 
     let results = vec![
-        ("apt", apt_handle.join().unwrap_or_else(|_| Ok(vec![]))),
-        ("flatpak", flatpak_handle.join().unwrap_or_else(|_| Ok(vec![]))),
-        ("snap", snap_handle.join().unwrap_or_else(|_| Ok(vec![]))),
+        ("apt", apt_handle.join().unwrap_or_else(|_| Err(crate::model::AppError::Backend("apt source thread panicked".into())))),
+        ("flatpak", flatpak_handle.join().unwrap_or_else(|_| Err(crate::model::AppError::Backend("flatpak source thread panicked".into())))),
+        ("snap", snap_handle.join().unwrap_or_else(|_| Err(crate::model::AppError::Backend("snap source thread panicked".into())))),
     ];
     let mut agg = aggregate::merge(results);
     // Build the icon index ONCE (O(tree), not O(apps × tree)).

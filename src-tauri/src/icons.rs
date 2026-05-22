@@ -6,6 +6,7 @@ const EXTS: [&str; 3] = ["png", "svg", "xpm"];
 /// Resolve a `.desktop` Icon= value against a list of icon theme roots.
 /// - Absolute existing paths are returned as-is.
 /// - Otherwise search each root recursively for `<name>.{png,svg,xpm}`.
+///
 /// Returns the first match, or None.
 pub fn resolve(icon: &str, roots: &[PathBuf]) -> Option<PathBuf> {
     if icon.is_empty() {
@@ -126,7 +127,7 @@ mod tests {
         // self-referential cycle: base/sub/loop -> base
         symlink(&base, sub.join("loop")).unwrap();
         // Must terminate (no stack overflow) and find nothing.
-        let result = resolve("nonexistent-icon", &[base.clone()]);
+        let result = resolve("nonexistent-icon", std::slice::from_ref(&base));
         std::fs::remove_dir_all(&base).ok();
         assert_eq!(result, None);
     }

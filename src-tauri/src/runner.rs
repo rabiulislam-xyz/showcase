@@ -27,13 +27,14 @@ impl CommandRunner for SystemRunner {
 }
 
 /// Test double: returns canned stdout keyed by the program name.
+#[derive(Default)]
 pub struct FakeRunner {
     pub responses: HashMap<String, Result<String, AppError>>,
 }
 
 impl FakeRunner {
     pub fn new() -> Self {
-        Self { responses: HashMap::new() }
+        Self::default()
     }
     pub fn with(mut self, program: &str, out: &str) -> Self {
         self.responses.insert(program.to_string(), Ok(out.to_string()));
