@@ -1,7 +1,142 @@
-# Tauri + SvelteKit + TypeScript
+<div align="center">
 
-This template should help get you started developing with Tauri, SvelteKit and TypeScript in Vite.
+# Showcase
 
-## Recommended IDE Setup
+**See and manage every app installed on your Linux system — `apt`, Flatpak, and Snap — in one clean, native desktop app.**
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
+![Platform](https://img.shields.io/badge/platform-Linux-1793D1?logo=linux&logoColor=white)
+![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)
+![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+![Showcase screenshot](docs/screenshot.png)
+
+</div>
+
+## What is Showcase?
+
+Showcase is a desktop application for Ubuntu (and other Linux desktops) that gives you a single, visual place to **browse every installed graphical application** across all the ways software gets installed — system packages (`apt`/`dpkg`), **Flatpak**, and **Snap** — inspect each app's details, and **uninstall** the ones you no longer want, with a proper graphical password prompt.
+
+No more remembering whether you installed something with `apt`, `flatpak`, or `snap`. Showcase finds them all, shows them together, and lets you remove them safely.
+
+## Features
+
+- 🗂️ **Unified view** — every GUI app from `apt`, Flatpak, and Snap in one grid, each tagged by source.
+- 🔎 **Search, filter, and sort** — live search, filter by source (with live counts), sort by name, size, or recently installed.
+- 📋 **Rich detail panel** — icon, version, install size, install date, publisher, categories, package id, launch command, and a full description.
+- 🗑️ **Complete uninstall** — remove an app with one click, authenticated through the system polkit dialog, with the disk space it frees shown up front.
+- 🛡️ **Safe by design** — refuses to remove essential system packages and base snaps; warns when removing an `apt` package may also remove things that depend on it.
+- 🎨 **Native & themed** — clean light/dark interface that follows your system, with crisp app icons.
+- ⚡ **Fast & resilient** — sources are queried in parallel; if one (e.g. `snapd`) is unavailable, the rest still load.
+
+## Requirements
+
+- **Ubuntu 22.04 LTS** or newer (or a derivative). GNOME is recommended; the polkit prompt needs a working authentication agent (standard on GNOME/KDE).
+- `apt`/`dpkg` (always present). `flatpak` and `snapd` are optional — Showcase simply shows whichever are installed.
+
+## Install & run from source
+
+### 1. Toolchains
+
+- **Rust** (stable) — install via [rustup](https://rustup.rs).
+- **Node.js** 18+ and npm.
+
+### 2. System build dependencies (one-time)
+
+Tauri needs a few GTK/WebKit development libraries:
+
+```bash
+./scripts/setup-deps.sh
+```
+
+This runs `sudo apt-get install` for `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, and `pkg-config`.
+
+### 3. Run in development
+
+```bash
+npm install
+npm run tauri dev
+```
+
+The first build compiles the Rust backend and can take a couple of minutes.
+
+### 4. Build a release package
+
+```bash
+npm run tauri build
+```
+
+This produces a `.deb` and an AppImage under `src-tauri/target/release/bundle/`. Install the `.deb` with:
+
+```bash
+sudo apt install ./src-tauri/target/release/bundle/deb/showcase_*_amd64.deb
+```
+
+Then launch **Showcase** from your applications menu.
+
+## Usage
+
+1. Launch Showcase — it lists every installed GUI app.
+2. **Search** by name, **filter** by source (All / APT / Flatpak / Snap), or **sort** by name, size, or recency.
+3. Click an app to open its **detail panel** with full metadata and description.
+4. Click **Uninstall** → confirm → authenticate in the system password dialog. The app disappears from the grid when removal succeeds.
+
+> **About permissions:** Showcase itself runs unprivileged. Removal is escalated **per action** through polkit. `apt` and Snap removals run via `pkexec` (so the system password dialog appears); Flatpak uses its own native uninstall (no password needed for per-user installs).
+
+## How it works
+
+- **Discovery** — `.desktop` entries are the source of truth for "what is an app" (exactly what appears in your applications menu). Each entry is classified by location into a source.
+- **Enrichment** — each source adds its metadata: `apt` via `dpkg-query` (version, size, essential flag), Flatpak via `flatpak list`, Snap via the local `snapd` REST socket (version, size, install date).
+- **One app per package** — multiple launchers from the same package collapse to a single entry (uninstalling removes the package, not one shortcut).
+- **Backend** — a small Rust core exposes Tauri commands: `list_apps`, `get_app_details`, `uninstall_app`. Sources sit behind a command-runner seam, so all parsing/merging logic is unit-tested with fixtures and never touches the live system in tests.
+- **Frontend** — SvelteKit (Svelte 5) with a typed API layer, pure filter/sort logic, and presentational components. Icons render through Tauri's asset protocol.
+
+## Project structure
+
+```
+showcase/
+├── src/                     # SvelteKit frontend (Svelte 5 + TypeScript)
+│   ├── lib/
+│   │   ├── components/      # AppCard, AppGrid, Header, AppDetail, ConfirmDialog, Toast …
+│   │   ├── types.ts api.ts filter.ts stores.ts format.ts theme.css
+│   └── routes/              # +page.svelte (the app), +layout.svelte
+├── src-tauri/               # Rust backend (crate: showcase_lib)
+│   └── src/                 # model, desktop, runner, dpkg, snapd, icons,
+│                            #   sources/{apt,flatpak,snap}, aggregate, commands, uninstall
+├── scripts/setup-deps.sh    # one-time system build deps
+└── docs/superpowers/        # design specs + phased implementation plans
+```
+
+## Development
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml                    # Rust unit + gated integration tests
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets    # lint (clean)
+npm test                                                           # frontend (Vitest)
+npm run check                                                      # svelte-check / TypeScript
+```
+
+The project was built in three reviewed phases — **(1)** backend enumeration core, **(2)** browse UI, **(3)** uninstall — each documented under `docs/superpowers/specs/` and `docs/superpowers/plans/`.
+
+## Security
+
+- The app never runs as root; only the specific uninstall operation escalates, per action, via polkit.
+- Package identifiers are passed as argument arrays, never interpolated into a shell (injection-safe).
+- Guards block removal of `Essential` apt packages and base/core snaps before any privileged call.
+
+## Roadmap
+
+- Installing apps (not just uninstalling)
+- AppImage detection
+- Per-app permission management (Flatpak/Snap interfaces)
+- Live, line-by-line uninstall progress
+- Published release binaries
+
+## Tech stack
+
+[Tauri v2](https://tauri.app) · Rust · [SvelteKit](https://svelte.dev) (Svelte 5) · TypeScript · WebKitGTK · PackageKit/polkit
+
+## License
+
+[MIT](LICENSE) © 2026 Rabiul Islam
