@@ -4,7 +4,6 @@
     status,
     errorMsg,
     visibleApps,
-    apps,
     loadApps,
     query,
     sourceFilter,
@@ -13,14 +12,12 @@
   import StatusBanner from "$lib/components/StatusBanner.svelte";
   import AppGrid from "$lib/components/AppGrid.svelte";
   import AppDetail from "$lib/components/AppDetail.svelte";
-  import Spinner from "$lib/components/Spinner.svelte";
+  import SkeletonCard from "$lib/components/SkeletonCard.svelte";
   import Toast from "$lib/components/Toast.svelte";
 
   onMount(loadApps);
 
-  // Distinguish "nothing installed" from "filters hide everything".
-  let hasApps = $derived($apps.length > 0);
-  let filtersActive = $derived($query.trim() !== "" || $sourceFilter !== "all");
+  const SKELETON_COUNT = 10;
 
   function clearFilters() {
     query.set("");
@@ -28,117 +25,116 @@
   }
 </script>
 
-<div class="app">
-  <Header />
+<Header />
+
+<main>
   <StatusBanner />
 
-  <main class="region">
-    {#if $status === "loading"}
-      <div class="centered">
-        <Spinner />
-        <p class="muted">Loading apps…</p>
+  {#if $status === "loading"}
+    <div class="grid">
+      {#each Array(SKELETON_COUNT) as _, i (i)}
+        <SkeletonCard />
+      {/each}
+    </div>
+  {:else if $status === "error"}
+    <div class="error-panel">
+      <div class="error-icon" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
       </div>
-    {:else if $status === "error"}
-      <div class="centered">
-        <div class="panel">
-          <h2>Couldn’t load apps</h2>
-          <p class="muted">{$errorMsg || "An unexpected error occurred."}</p>
-          <button type="button" class="retry" onclick={() => loadApps()}>
-            Retry
-          </button>
-        </div>
+      <h3>Couldn’t load apps</h3>
+      <p>{$errorMsg || "An unexpected error occurred while scanning your system."}</p>
+      <button class="reset" onclick={() => loadApps()}>Retry</button>
+    </div>
+  {:else if $visibleApps.length === 0}
+    <div class="empty">
+      <div class="empty-icon" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       </div>
-    {:else if $visibleApps.length === 0}
-      <div class="centered">
-        <div class="empty">
-          {#if hasApps && filtersActive}
-            <p>No apps match your filters.</p>
-            <button type="button" class="ghost" onclick={clearFilters}>
-              Clear filters
-            </button>
-          {:else}
-            <p>No apps found.</p>
-          {/if}
-        </div>
-      </div>
-    {:else}
-      <AppGrid />
-    {/if}
-  </main>
-</div>
+      <h3>No apps match your filters</h3>
+      <p>Try a different search term, or clear the source filter to see everything installed on your system.</p>
+      <button class="reset" onclick={clearFilters}>Clear filters</button>
+    </div>
+  {:else}
+    <AppGrid />
+  {/if}
+</main>
 
 <AppDetail />
 <Toast />
 
 <style>
-  .app {
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
+  main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 32px;
   }
 
-  .region {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
   }
 
-  .centered {
-    flex: 1;
+  .empty,
+  .error-panel {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 14px;
-    padding: 40px 20px;
+    padding: 80px 32px;
     text-align: center;
+    color: var(--text-muted);
   }
-
-  .muted {
-    color: var(--muted);
-    margin: 0;
-  }
-
-  .panel,
-  .empty {
+  .empty-icon,
+  .error-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: var(--surface-2);
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 12px;
-    max-width: 360px;
+    justify-content: center;
+    color: var(--text-faint);
+    margin-bottom: 20px;
   }
-
-  .panel h2 {
+  .error-icon {
+    color: var(--destructive);
+    background: var(--destructive-tint);
+  }
+  .empty h3,
+  .error-panel h3 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text);
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .empty p,
+  .error-panel p {
     margin: 0;
-    font-size: 17px;
+    max-width: 380px;
+    word-break: break-word;
   }
-
-  .retry,
-  .ghost {
+  .reset {
+    margin-top: 18px;
     padding: 8px 16px;
     border-radius: var(--radius-ctrl);
-    font: inherit;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .retry {
-    border: none;
-    background: var(--accent);
-    color: #fff;
-  }
-  .retry:hover {
-    background: var(--accent-hover);
-  }
-
-  .ghost {
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 150ms var(--ease);
   }
-  .ghost:hover {
+  .reset:hover {
     border-color: var(--accent);
     color: var(--accent);
+  }
+
+  @media (max-width: 720px) {
+    main {
+      padding: 24px 20px;
+    }
   }
 </style>
