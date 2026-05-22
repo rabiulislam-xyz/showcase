@@ -17,7 +17,14 @@ pub fn merge(results: Vec<(&str, Result<Vec<App>, AppError>)>) -> Aggregated {
             Err(e) => agg.warnings.push(format!("{name}: {e}")),
         }
     }
-    agg.apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    // Total order: name (case-insensitive) with uid as a tiebreaker so apps
+    // sharing a name keep a deterministic, stable position across runs.
+    agg.apps.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.uid.cmp(&b.uid))
+    });
     agg
 }
 
@@ -27,9 +34,13 @@ mod tests {
     use crate::model::Source;
 
     fn app(name: &str) -> App {
+        app_src(Source::Apt, name)
+    }
+
+    fn app_src(source: Source, name: &str) -> App {
         App {
-            uid: App::make_uid(Source::Apt, name),
-            source: Source::Apt,
+            uid: App::make_uid(source, name),
+            source,
             name: name.to_string(),
             summary: None, description: None, version: None, icon_path: None,
             size_bytes: None, install_date: None, publisher: None,
@@ -50,5 +61,24 @@ mod tests {
         assert_eq!(agg.apps[1].name, "Zebra");
         assert_eq!(agg.warnings.len(), 1);
         assert!(agg.warnings[0].contains("snap"));
+    }
+
+    #[test]
+    fn equal_names_break_ties_by_uid_deterministically() {
+        // Same display name from different sources → uids "flatpak:Code",
+        // "snap:Code". The uid tiebreaker must order them deterministically
+        // regardless of input order.
+        let snap = app_src(Source::Snap, "Code"); // uid "snap:Code"
+        let flat = app_src(Source::Flatpak, "Code"); // uid "flatpak:Code"
+
+        let forward = merge(vec![("a", Ok(vec![snap.clone(), flat.clone()]))]);
+        let reversed = merge(vec![("a", Ok(vec![flat, snap]))]);
+
+        // "flatpak:Code" < "snap:Code", so flatpak sorts first either way.
+        assert_eq!(forward.apps[0].uid, "flatpak:Code");
+        assert_eq!(forward.apps[1].uid, "snap:Code");
+        let f: Vec<_> = forward.apps.iter().map(|a| a.uid.clone()).collect();
+        let r: Vec<_> = reversed.apps.iter().map(|a| a.uid.clone()).collect();
+        assert_eq!(f, r, "tie ordering must be input-order independent");
     }
 }
