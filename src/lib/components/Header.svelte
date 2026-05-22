@@ -4,9 +4,10 @@
     sourceFilter,
     sortKey,
     apps,
-    visibleApps,
     loadApps,
     status,
+    theme,
+    toggleTheme,
   } from "$lib/stores";
   import type { Source } from "$lib/types";
   import type { SortKey } from "$lib/filter";
@@ -19,297 +20,444 @@
     return c;
   });
 
-  const filters: { key: FilterKey; label: string }[] = [
+  const filters: { key: FilterKey; label: string; dot?: Source }[] = [
     { key: "all", label: "All" },
-    { key: "apt", label: "apt" },
-    { key: "flatpak", label: "flatpak" },
-    { key: "snap", label: "snap" },
+    { key: "apt", label: "APT", dot: "apt" },
+    { key: "flatpak", label: "Flatpak", dot: "flatpak" },
+    { key: "snap", label: "Snap", dot: "snap" },
   ];
 
   const sorts: { value: SortKey; label: string }[] = [
     { value: "name", label: "Name" },
     { value: "size", label: "Size" },
-    { value: "recent", label: "Recent" },
+    { value: "recent", label: "Recently installed" },
   ];
 
+  let sortLabel = $derived(
+    sorts.find((s) => s.value === $sortKey)?.label ?? "Name",
+  );
+
   let refreshing = $derived($status === "loading");
+  // Drives the one-shot spin animation on refresh click.
+  let spinning = $state(false);
+
+  function refresh() {
+    spinning = false;
+    // Force reflow so the animation restarts on every click.
+    requestAnimationFrame(() => {
+      spinning = true;
+    });
+    loadApps();
+  }
+
+  // --- Sort dropdown ---
+  let sortOpen = $state(false);
+  let sortWrap = $state<HTMLDivElement | undefined>();
+
+  function chooseSort(value: SortKey) {
+    sortKey.set(value);
+    sortOpen = false;
+  }
+
+  function onDocClick(e: MouseEvent) {
+    if (sortOpen && sortWrap && !sortWrap.contains(e.target as Node)) {
+      sortOpen = false;
+    }
+  }
+
+  // --- Cmd/Ctrl+K to focus the search input ---
+  let searchInput = $state<HTMLInputElement | undefined>();
+
+  function onWindowKeydown(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      searchInput?.focus();
+      searchInput?.select();
+    }
+    if (e.key === "Escape" && sortOpen) sortOpen = false;
+  }
 </script>
 
+<svelte:window onkeydown={onWindowKeydown} onclick={onDocClick} />
+
 <header class="header">
-  <div class="brand">
-    <h1>Showcase</h1>
-    <span class="count">{$visibleApps.length} apps</span>
-  </div>
+  <div class="header-inner">
+    <div class="brand">
+      <span class="wordmark">Showcase<span class="dot"></span></span>
+      <span class="app-count"><strong>{$apps.length}</strong> apps installed</span>
+    </div>
 
-  <div class="search">
-    <svg class="search-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M7 1a6 6 0 0 1 4.74 9.68l3.29 3.29a.75.75 0 0 1-1.06 1.06l-3.29-3.29A6 6 0 1 1 7 1Zm0 1.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"
-        fill="currentColor"
+    <div class="search" role="search">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input
+        bind:this={searchInput}
+        type="text"
+        placeholder="Search applications…"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Search applications"
+        bind:value={$query}
       />
-    </svg>
-    <input
-      type="search"
-      placeholder="Search apps…"
-      aria-label="Search apps"
-      bind:value={$query}
-    />
-    {#if $query}
+      <kbd>⌘K</kbd>
+    </div>
+
+    <div class="actions">
       <button
-        type="button"
-        class="clear"
-        aria-label="Clear search"
-        onclick={() => query.set("")}
+        class="icon-btn"
+        class:spinning
+        title="Refresh"
+        aria-label="Refresh app list"
+        disabled={refreshing}
+        onclick={refresh}
       >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path
-            d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06Z"
-            fill="currentColor"
-          />
-        </svg>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/><path d="M3 21v-5h5"/></svg>
       </button>
-    {/if}
-  </div>
-
-  <div class="segmented" role="group" aria-label="Filter by source">
-    {#each filters as f (f.key)}
       <button
-        type="button"
-        class="seg"
-        class:active={$sourceFilter === f.key}
-        aria-pressed={$sourceFilter === f.key}
-        onclick={() => sourceFilter.set(f.key)}
+        class="icon-btn"
+        title="Toggle theme"
+        aria-label="Toggle theme"
+        onclick={toggleTheme}
       >
-        {f.label}
-        <span class="seg-count">{counts[f.key]}</span>
+        {#if $theme === "dark"}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+        {:else}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        {/if}
       </button>
-    {/each}
+    </div>
+
+    <div class="filter-row">
+      <div class="segmented" role="group" aria-label="Filter by source">
+        {#each filters as f (f.key)}
+          <button
+            class="seg-btn"
+            class:active={$sourceFilter === f.key}
+            aria-pressed={$sourceFilter === f.key}
+            onclick={() => sourceFilter.set(f.key)}
+          >
+            {#if f.dot}<span class="seg-dot {f.dot}"></span>{/if}
+            <span>{f.label}</span>
+            <span class="count">{counts[f.key]}</span>
+          </button>
+        {/each}
+      </div>
+
+      <div class="sort">
+        <span>Sort by</span>
+        <div class="sort-wrap" bind:this={sortWrap}>
+          <button
+            class="sort-select"
+            aria-haspopup="listbox"
+            aria-expanded={sortOpen}
+            onclick={() => (sortOpen = !sortOpen)}
+          >
+            <span>{sortLabel}</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          {#if sortOpen}
+            <div class="sort-menu open" role="listbox" aria-label="Sort by">
+              {#each sorts as s (s.value)}
+                <button
+                  class="sort-menu-item"
+                  role="option"
+                  aria-selected={$sortKey === s.value}
+                  onclick={() => chooseSort(s.value)}
+                >
+                  <span>{s.label}</span>
+                  <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+    </div>
   </div>
-
-  <label class="sort">
-    <span class="visually-hidden">Sort by</span>
-    <select bind:value={$sortKey} aria-label="Sort apps">
-      {#each sorts as s (s.value)}
-        <option value={s.value}>{s.label}</option>
-      {/each}
-    </select>
-  </label>
-
-  <button
-    type="button"
-    class="refresh"
-    class:spinning={refreshing}
-    aria-label="Refresh app list"
-    title="Refresh"
-    disabled={refreshing}
-    onclick={() => loadApps()}
-  >
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M8 2.5a5.5 5.5 0 1 0 5.32 4.13.75.75 0 0 1 1.45-.38A7 7 0 1 1 8 1a6.97 6.97 0 0 1 4.5 1.64V1.75a.75.75 0 0 1 1.5 0V4.5a.75.75 0 0 1-.75.75H10.5a.75.75 0 0 1 0-1.5h1.27A5.48 5.48 0 0 0 8 2.5Z"
-        fill="currentColor"
-      />
-    </svg>
-  </button>
 </header>
 
 <style>
   .header {
     position: sticky;
     top: 0;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    flex-wrap: wrap;
-    padding: 12px 18px;
-    background: var(--header-bg);
-    backdrop-filter: saturate(1.4) blur(12px);
-    -webkit-backdrop-filter: saturate(1.4) blur(12px);
+    z-index: 50;
+    background: color-mix(in oklab, var(--bg) 92%, transparent);
+    backdrop-filter: saturate(160%) blur(12px);
+    -webkit-backdrop-filter: saturate(160%) blur(12px);
     border-bottom: 1px solid var(--border);
+    transition: background-color 200ms var(--ease), border-color 200ms var(--ease);
   }
-
+  .header-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 18px 32px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "brand search actions"
+      "filters filters filters";
+    gap: 16px 24px;
+    align-items: center;
+  }
   .brand {
+    grid-area: brand;
     display: flex;
     align-items: baseline;
-    gap: 10px;
+    gap: 12px;
   }
-
-  .brand h1 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+  .wordmark {
+    font-family: var(--serif);
+    font-size: 28px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    color: var(--text);
   }
-
-  .count {
-    font-size: 12px;
-    color: var(--muted);
+  .wordmark .dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    vertical-align: middle;
+    margin-left: 2px;
+    margin-bottom: 4px;
+  }
+  .app-count {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
+  }
+  .app-count strong {
+    color: var(--text);
+    font-weight: 500;
   }
 
   .search {
+    grid-area: search;
     position: relative;
-    display: flex;
-    align-items: center;
-    flex: 1 1 220px;
-    min-width: 180px;
+    max-width: 480px;
+    width: 100%;
+    justify-self: center;
   }
-
-  .search-icon {
+  .search input {
+    width: 100%;
+    height: 40px;
+    padding: 0 14px 0 40px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-ctrl);
+    font-size: 14px;
+    color: var(--text);
+    transition: all 150ms var(--ease);
+  }
+  .search input::placeholder {
+    color: var(--text-faint);
+  }
+  .search input:hover {
+    border-color: var(--border-strong);
+  }
+  .search input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-tint);
+    outline: none;
+  }
+  .search svg {
     position: absolute;
-    left: 10px;
-    width: 15px;
-    height: 15px;
-    color: var(--muted);
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+  .search kbd {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
     pointer-events: none;
   }
 
-  .search input {
-    width: 100%;
-    padding: 7px 32px 7px 32px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-ctrl);
-    background: var(--surface);
-    color: var(--text);
-    font: inherit;
-    font-size: 13px;
-  }
-
-  .search input:focus {
-    border-color: var(--accent);
-    outline: none;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
-  }
-
-  /* Hide the native search clear control; we provide our own. */
-  .search input::-webkit-search-cancel-button {
-    appearance: none;
-  }
-
-  .clear {
-    position: absolute;
-    right: 6px;
+  .actions {
+    grid-area: actions;
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border: none;
-    border-radius: var(--radius-pill);
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
+    gap: 8px;
   }
-  .clear:hover {
-    background: var(--surface-hover);
-    color: var(--text);
-  }
-  .clear svg {
-    width: 13px;
-    height: 13px;
-  }
-
-  .segmented {
-    display: inline-flex;
-    padding: 2px;
-    background: var(--surface-hover);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-ctrl);
-  }
-
-  .seg {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 5px 10px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--muted);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .seg:hover {
-    color: var(--text);
-  }
-  .seg.active {
-    background: var(--surface);
-    color: var(--text);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .seg-count {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 0 5px;
-    border-radius: var(--radius-pill);
-    background: color-mix(in srgb, var(--muted) 18%, transparent);
-    color: var(--muted);
-  }
-  .seg.active .seg-count {
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
-    color: var(--accent);
-  }
-
-  .sort select {
-    padding: 7px 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-ctrl);
-    background: var(--surface);
-    color: var(--text);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .sort select:focus {
-    border-color: var(--accent);
-    outline: none;
-  }
-
-  .refresh {
+  .icon-btn {
+    width: 40px;
+    height: 40px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
-    border: 1px solid var(--border);
     border-radius: var(--radius-ctrl);
-    background: var(--surface);
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    transition: all 150ms var(--ease);
+  }
+  .icon-btn:hover {
+    background: var(--surface-2);
     color: var(--text);
-    cursor: pointer;
+    border-color: var(--border);
   }
-  .refresh:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .refresh:disabled {
+  .icon-btn:disabled {
     cursor: default;
-    opacity: 0.7;
+    opacity: 0.6;
   }
-  .refresh svg {
-    width: 16px;
-    height: 16px;
+  .icon-btn.spinning svg {
+    animation: spin 600ms var(--ease);
   }
-  .refresh.spinning svg {
-    animation: spin 0.8s linear infinite;
-  }
-
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-
   @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  .filter-row {
+    grid-area: filters;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .segmented {
+    display: inline-flex;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-ctrl);
+    padding: 3px;
+    gap: 2px;
+  }
+  .seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    border-radius: 6px;
+    transition: all 150ms var(--ease);
+    position: relative;
+  }
+  .seg-btn:hover:not(.active) {
+    color: var(--text);
+  }
+  .seg-btn.active {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 1px 2px rgba(20, 20, 19, 0.06);
+  }
+  :global([data-theme="dark"]) .seg-btn.active {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+  .seg-btn .count {
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: var(--text-faint);
+    font-weight: 400;
+  }
+  .seg-btn.active .count {
+    color: var(--text-muted);
+  }
+  .seg-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .seg-dot.apt {
+    background: var(--apt);
+  }
+  .seg-dot.flatpak {
+    background: var(--flatpak);
+  }
+  .seg-dot.snap {
+    background: var(--snap);
+  }
+
+  .sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .sort-wrap {
+    position: relative;
+  }
+  .sort-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-ctrl);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 150ms var(--ease);
+  }
+  .sort-select:hover {
+    border-color: var(--border-strong);
+  }
+  .sort-menu {
+    position: absolute;
+    right: 0;
+    margin-top: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-ctrl);
+    box-shadow: var(--shadow);
+    min-width: 200px;
+    padding: 4px;
+    z-index: 100;
+  }
+  .sort-menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--text);
+    text-align: left;
+    transition: background 150ms var(--ease);
+  }
+  .sort-menu-item:hover {
+    background: var(--surface-2);
+  }
+  .sort-menu-item .check {
+    color: var(--accent);
+    opacity: 0;
+  }
+  .sort-menu-item[aria-selected="true"] .check {
+    opacity: 1;
+  }
+
+  @media (max-width: 720px) {
+    .header-inner {
+      grid-template-columns: 1fr;
+      grid-template-areas: "brand" "search" "actions" "filters";
+      padding: 16px 20px;
+    }
+    .actions {
+      justify-content: flex-end;
+    }
+    .filter-row {
+      flex-direction: column;
+      align-items: stretch;
     }
   }
 </style>
