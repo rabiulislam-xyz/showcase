@@ -18,7 +18,18 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "/usr/share/icons/**",
+          "/usr/share/pixmaps/**",
+          "/var/lib/flatpak/exports/share/icons/**",
+          "/var/lib/snapd/**",
+          "$HOME/.local/share/icons/**",
+          "$HOME/.local/share/flatpak/exports/share/icons/**"
+        ]
+      }
     }
   },
   "bundle": {

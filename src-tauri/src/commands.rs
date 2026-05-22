@@ -204,7 +204,7 @@ pub fn get_app_details(uid: String) -> Option<String> {
             out.lines().find_map(|l| {
                 let lower = l.to_ascii_lowercase();
                 if lower.starts_with("description:") {
-                    let val = l.splitn(2, ':').nth(1).unwrap_or("").trim().to_string();
+                    let val = l.split_once(':').map(|(_, v)| v).unwrap_or("").trim().to_string();
                     if !val.is_empty() { Some(val) } else { None }
                 } else {
                     None
