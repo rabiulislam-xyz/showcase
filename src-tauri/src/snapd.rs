@@ -109,8 +109,11 @@ pub fn snapd_get(path: &str) -> Result<String, AppError> {
         .write_all(req.as_bytes())
         .map_err(|e| AppError::Backend(format!("snapd write: {e}")))?;
     let mut raw = String::new();
-    // HTTP/1.0 + no keep-alive: snapd closes the socket, so read_to_string sees EOF.
-    stream
+    // HTTP/1.0 + no keep-alive: snapd closes the socket, so the bounded read sees
+    // EOF. Cap the read so a misbehaving snapd can't OOM the app; 8 MiB is far
+    // beyond any legitimate /v2/snaps body.
+    const MAX_BODY: u64 = 8 * 1024 * 1024;
+    Read::take(stream, MAX_BODY)
         .read_to_string(&mut raw)
         .map_err(|e| AppError::Backend(format!("snapd read: {e}")))?;
     extract_body(&raw)
