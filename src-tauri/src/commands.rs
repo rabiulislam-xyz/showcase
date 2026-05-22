@@ -191,21 +191,16 @@ pub fn get_app_details(uid: String) -> Option<String> {
             details::parse_apt_description(&out)
         }
         "flatpak" => {
-            // `flatpak info` output has a "Description:" line; reuse parse_apt_description
-            // since the format is compatible for our purposes.
+            // `flatpak info` output is NOT Debian RFC822-indented, so parse_apt_description
+            // must not be used here. Scan for the first "Description:" or "Comment:" line
+            // and return the value on that same line.
             let out = SystemRunner.run("flatpak", &["info", pkg_ref]).ok()?;
-            // flatpak info uses "Description:" key, possibly with a value on the same line.
-            // parse_apt_description only reads continuation lines; if flatpak puts the whole
-            // description on one line we fall back to reading it directly.
-            if let Some(desc) = details::parse_apt_description(&out) {
-                return Some(desc);
-            }
-            // Single-line fallback: find "Description: <text>".
             out.lines().find_map(|l| {
-                let lower = l.to_ascii_lowercase();
-                if lower.starts_with("description:") {
-                    let val = l.split_once(':').map(|(_, v)| v).unwrap_or("").trim().to_string();
-                    if !val.is_empty() { Some(val) } else { None }
+                let trimmed = l.trim();
+                let lower = trimmed.to_ascii_lowercase();
+                if lower.starts_with("description:") || lower.starts_with("comment:") {
+                    let val = trimmed.split_once(':').map(|(_, v)| v).unwrap_or("").trim();
+                    if !val.is_empty() { Some(val.to_string()) } else { None }
                 } else {
                     None
                 }
