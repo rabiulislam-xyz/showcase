@@ -35,6 +35,46 @@ No more remembering whether you installed something with `apt`, `flatpak`, or `s
 - **Ubuntu 22.04 LTS** or newer (or a derivative). GNOME is recommended; the polkit prompt needs a working authentication agent (standard on GNOME/KDE).
 - `apt`/`dpkg` (always present). `flatpak` and `snapd` are optional — Showcase simply shows whichever are installed.
 
+## Download & install
+
+Prebuilt packages for **Ubuntu 22.04+ (amd64)** are published with every release.
+
+### A) Direct download (recommended for most)
+
+1. Go to the [**Releases** page](https://github.com/rabiulislam-xyz/showcase/releases) and open the latest release.
+2. Download the `.deb` and the `SHA256SUMS` file into the same directory.
+3. Verify the download, then install:
+
+   ```bash
+   sha256sum -c SHA256SUMS --ignore-missing
+   sudo apt install ./Showcase_*_amd64.deb
+   ```
+
+Prefer a portable, no-install binary? Grab the **AppImage** from the same release and run it directly:
+
+```bash
+chmod +x Showcase_*.AppImage
+./Showcase_*.AppImage
+```
+
+### B) APT repository (auto-updates)
+
+Add the signed Showcase APT repository once, then receive updates through `apt` like any other package:
+
+```bash
+sudo mkdir -p /etc/apt/keyrings
+sudo wget -O /etc/apt/keyrings/showcase-archive-keyring.gpg https://rabiulislam-xyz.github.io/showcase/showcase-archive-keyring.gpg
+echo "deb [signed-by=/etc/apt/keyrings/showcase-archive-keyring.gpg] https://rabiulislam-xyz.github.io/showcase stable main" | sudo tee /etc/apt/sources.list.d/showcase.list
+sudo apt update && sudo apt install showcase
+```
+
+> This path is available only after the maintainer has completed the one-time
+> setup in [docs/DISTRIBUTING.md](docs/DISTRIBUTING.md). If `apt update` can't
+> reach the repository, use the direct download above instead.
+
+> **For maintainers:** see [docs/DISTRIBUTING.md](docs/DISTRIBUTING.md) for how
+> releases are built and how to enable the signed APT repository.
+
 ## Install & run from source
 
 ### 1. Toolchains

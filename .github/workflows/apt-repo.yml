@@ -1,0 +1,122 @@
+name: Publish APT repository
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Opt-in: the maintainer sets repo variable APT_REPO_ENABLED=true once the
+    # GPG signing secrets are configured. Until then this job is skipped and
+    # nothing fails.
+    if: ${{ vars.APT_REPO_ENABLED == 'true' }}
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install apt-utils and gnupg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils gnupg
+
+      - name: Download release .deb assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p debs
+          if [ -n "${RELEASE_TAG:-}" ]; then
+            gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir debs
+          else
+            # workflow_dispatch: fall back to the latest published release.
+            gh release download \
+              --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir debs
+          fi
+          ls -l debs
+
+      - name: Import GPG signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          export GPG_TTY=$(tty || true)
+          echo "GPG_TTY=$GPG_TTY" >> "$GITHUB_ENV"
+          # Allow non-interactive (loopback) signing.
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          printf 'allow-loopback-pinentry\n' >> ~/.gnupg/gpg-agent.conf
+          printf 'pinentry-mode loopback\n' >> ~/.gnupg/gpg.conf
+          gpgconf --reload gpg-agent || true
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Build signed APT repository
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          # build-apt-repo.sh calls plain `gpg`; wrap it so every call uses
+          # loopback pinentry and the passphrase from the secret, enabling
+          # non-interactive signing.
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat > "$RUNNER_TEMP/bin/gpg" <<'EOF'
+          #!/usr/bin/env bash
+          exec /usr/bin/gpg --pinentry-mode loopback --batch --yes \
+            ${GPG_PASSPHRASE:+--passphrase "$GPG_PASSPHRASE"} "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/bin/gpg"
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+          bash scripts/build-apt-repo.sh debs ./public
+
+      - name: Add repository index page
+        run: |
+          PAGES_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+          cat > ./public/index.html <<EOF
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Showcase APT repository</title>
+            <style>
+              body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; }
+              code, pre { background: #f4f4f4; border-radius: 4px; }
+              pre { padding: 1rem; overflow-x: auto; }
+              code { padding: 0.1rem 0.3rem; }
+            </style>
+          </head>
+          <body>
+            <h1>Showcase APT repository</h1>
+            <p>Signed Debian package repository for
+              <a href="https://github.com/${GITHUB_REPOSITORY}">Showcase</a>
+              (Ubuntu 22.04+, amd64).</p>
+            <h2>Install</h2>
+            <pre><code>sudo mkdir -p /etc/apt/keyrings
+          sudo wget -O /etc/apt/keyrings/showcase-archive-keyring.gpg ${PAGES_URL}/showcase-archive-keyring.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/showcase-archive-keyring.gpg] ${PAGES_URL} stable main" | sudo tee /etc/apt/sources.list.d/showcase.list
+          sudo apt update &amp;&amp; sudo apt install showcase</code></pre>
+            <p>Signing key: <a href="showcase-archive-keyring.gpg">showcase-archive-keyring.gpg</a></p>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

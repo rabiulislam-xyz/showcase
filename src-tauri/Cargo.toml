@@ -2,7 +2,7 @@
 name = "showcase"
 version = "0.1.0"
 description = "Ubuntu app manager — browse and uninstall installed apps"
-authors = ["you"]
+authors = ["Rabiul Islam <rabiulislam993@live.com>"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
