@@ -1,5 +1,7 @@
 use crate::model::{App, AppError, Source};
 use serde::Deserialize;
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
 
 #[derive(Debug, Deserialize)]
 struct SnapdResponse {
@@ -58,8 +60,30 @@ pub fn parse_snaps(body: &str) -> Result<Vec<App>, AppError> {
     Ok(apps)
 }
 
-use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
+/// Extract the JSON body from a raw snapd HTTP response.
+/// Non-2xx statuses become typed errors; chunked bodies are rejected clearly
+/// (snapd answers HTTP/1.0 requests connection-close, so chunking is unexpected).
+fn extract_body(raw: &str) -> Result<String, AppError> {
+    let (head, body) = raw
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| AppError::Backend("snapd: malformed HTTP response".into()))?;
+    let mut lines = head.lines();
+    let status_line = lines.next().unwrap_or("");
+    let code = status_line.split_whitespace().nth(1).unwrap_or("");
+    if !code.starts_with('2') {
+        return Err(match code {
+            "401" | "403" => AppError::PermissionDenied(format!("snapd: {status_line}")),
+            _ => AppError::SourceUnavailable(format!("snapd HTTP status: {status_line}")),
+        });
+    }
+    if lines.any(|l| {
+        let l = l.to_ascii_lowercase();
+        l.starts_with("transfer-encoding:") && l.contains("chunked")
+    }) {
+        return Err(AppError::Backend("snapd: chunked response unsupported".into()));
+    }
+    Ok(body.to_string())
+}
 
 const SOCKET: &str = "/run/snapd.socket";
 
@@ -73,16 +97,11 @@ pub fn snapd_get(path: &str) -> Result<String, AppError> {
         .write_all(req.as_bytes())
         .map_err(|e| AppError::Backend(format!("snapd write: {e}")))?;
     let mut raw = String::new();
+    // HTTP/1.0 + no keep-alive: snapd closes the socket, so read_to_string sees EOF.
     stream
         .read_to_string(&mut raw)
         .map_err(|e| AppError::Backend(format!("snapd read: {e}")))?;
-    // Split headers from body at the first blank line.
-    let body = raw
-        .split_once("\r\n\r\n")
-        .map(|(_, b)| b)
-        .unwrap_or("")
-        .to_string();
-    Ok(body)
+    extract_body(&raw)
 }
 
 /// List installed snap apps from the live socket.
@@ -104,6 +123,30 @@ mod tests {
         {"name":"core22","version":"20260101","type":"base","installed-size":77000000}
       ]
     }"#;
+
+    #[test]
+    fn extract_body_returns_body_on_200() {
+        let raw = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"x\":1}";
+        assert_eq!(extract_body(raw).unwrap(), "{\"x\":1}");
+    }
+
+    #[test]
+    fn extract_body_permission_denied_on_403() {
+        let raw = "HTTP/1.1 403 Forbidden\r\n\r\n{...}";
+        assert!(matches!(extract_body(raw), Err(AppError::PermissionDenied(_))));
+    }
+
+    #[test]
+    fn extract_body_source_unavailable_on_500() {
+        let raw = "HTTP/1.1 500 Internal Server Error\r\n\r\n{}";
+        assert!(matches!(extract_body(raw), Err(AppError::SourceUnavailable(_))));
+    }
+
+    #[test]
+    fn extract_body_rejects_chunked() {
+        let raw = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
+        assert!(matches!(extract_body(raw), Err(AppError::Backend(_))));
+    }
 
     #[test]
     fn keeps_only_app_type() {
