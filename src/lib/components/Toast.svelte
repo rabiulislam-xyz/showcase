@@ -4,7 +4,12 @@
 
 <div class="toast-region" aria-live="polite" aria-atomic="false">
   {#each $toasts as toast (toast.id)}
-    <div class="toast" class:success={toast.kind === "success"} class:error={toast.kind === "error"}>
+    <div
+      class="toast"
+      class:success={toast.kind === "success"}
+      class:error={toast.kind === "error"}
+      role={toast.kind === "error" ? "alert" : undefined}
+    >
       <span class="toast-msg">{toast.msg}</span>
       <button
         type="button"

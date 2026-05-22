@@ -22,17 +22,54 @@
   } = $props();
 
   let confirmBtn = $state<HTMLButtonElement | undefined>();
+  let dialogEl = $state<HTMLDivElement | undefined>();
+  let prevFocus: Element | null = null;
 
-  // Focus the confirm button whenever the dialog opens.
+  // Save the previously focused element and focus the confirm button when the
+  // dialog opens; restore focus when it closes.
   $effect(() => {
-    if (open && confirmBtn) {
-      confirmBtn.focus();
+    if (open) {
+      prevFocus = document.activeElement;
+      confirmBtn?.focus();
+    } else if (prevFocus instanceof HTMLElement) {
+      prevFocus.focus();
+      prevFocus = null;
     }
   });
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape" && !busy) {
       oncancel();
+      return;
+    }
+
+    // Tab trap: keep focus inside the dialog.
+    if (e.key === "Tab" && dialogEl) {
+      const focusable = Array.from(
+        dialogEl.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.closest("[disabled]"));
+
+      if (focusable.length === 0) {
+        e.preventDefault();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     }
   }
 
@@ -40,8 +77,6 @@
     if (!busy) oncancel();
   }
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 {#if open}
   <!-- Backdrop -->
@@ -57,6 +92,9 @@
     aria-modal="true"
     aria-labelledby="cd-title"
     aria-describedby="cd-message"
+    tabindex="-1"
+    bind:this={dialogEl}
+    onkeydown={handleKeydown}
   >
     <h2 id="cd-title" class="title">{title}</h2>
     <p id="cd-message" class="message">{message}</p>

@@ -37,7 +37,7 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") close();
+    if (e.key === "Escape" && !confirmOpen) close();
   }
 
   // Lazy-load the long description whenever a new app is opened.
