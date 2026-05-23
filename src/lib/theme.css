@@ -9,7 +9,8 @@
   --border-strong: #D9D6C8;
   --text: #141413;
   --text-muted: #6B6A63;
-  --text-faint: #9C9A91;
+  /* Darkened from #9C9A91 (≈2.6:1) to meet WCAG AA (4.5:1) on light surfaces. */
+  --text-faint: #6E6C64;
   --accent: #D97757;
   --accent-hover: #C15F3C;
   --accent-tint: rgba(217, 119, 87, 0.10);
@@ -118,4 +119,18 @@ input {
 *::-webkit-scrollbar-thumb {
   background: var(--border-strong);
   border-radius: 4px;
+}
+
+/* Respect reduced-motion: drop the decorative animations (refresh spin,
+   skeleton shimmer) and collapse transitions. State changes still apply
+   instantly, so everything still opens and closes — just without motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
