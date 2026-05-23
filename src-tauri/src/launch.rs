@@ -89,4 +89,33 @@ mod tests {
         assert_eq!(args.len(), 2);
         assert_eq!(args[1], malicious, "path metacharacters must not be split or interpreted");
     }
+
+    // ── AppImage launch ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn appimage_without_desktop_path_runs_the_file_via_setsid() {
+        let path = "/home/u/Applications/Foo-1.2.3-x86_64.AppImage";
+        let (prog, args) = build_launch_command(Source::AppImage, None, path);
+        assert_eq!(prog, "setsid");
+        assert_eq!(args, vec!["--fork", path]);
+    }
+
+    #[test]
+    fn appimage_with_registered_desktop_path_uses_gio_launch() {
+        // AppImageLauncher-registered AppImage: the .desktop file is the launch target.
+        let desktop = "/home/u/.local/share/applications/Foo.desktop";
+        let path = "/home/u/Applications/Foo-1.2.3-x86_64.AppImage";
+        let (prog, args) = build_launch_command(Source::AppImage, Some(desktop), path);
+        assert_eq!(prog, "gio");
+        assert_eq!(args, vec!["launch", desktop]);
+    }
+
+    #[test]
+    fn appimage_shell_metacharacters_in_path_stay_as_single_arg() {
+        let evil = "/home/u/Apps/foo; rm -rf /";
+        let (prog, args) = build_launch_command(Source::AppImage, None, evil);
+        assert_eq!(prog, "setsid");
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[1], evil, "metacharacters must not be split");
+    }
 }
