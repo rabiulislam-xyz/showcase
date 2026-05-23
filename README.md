@@ -52,6 +52,14 @@ Prebuilt packages for **Ubuntu 22.04+ (amd64)** are published with every release
    sudo apt install ./Showcase_*_amd64.deb
    ```
 
+> **Use `apt install ./…`, not `sudo dpkg -i …`.** `apt` pulls the runtime
+> dependencies (`libwebkit2gtk-4.1-0`, `libgtk-3-0`); plain `dpkg -i` does not and
+> fails with a "dependency problems" error. If you already ran `dpkg -i` and hit
+> that, finish the install with:
+> ```bash
+> sudo apt-get install -f
+> ```
+
 Prefer a portable, no-install binary? Grab the **AppImage** from the same release and run it directly:
 
 ```bash
