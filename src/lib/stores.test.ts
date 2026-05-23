@@ -18,10 +18,16 @@ import {
   status,
   errorMsg,
   theme,
+  checking,
   removeApp,
   pushToast,
   dismissToast,
   loadApps,
+  applyUpdates,
+  clearUpdate,
+  checkForUpdates,
+  updatableApps,
+  updatesCount,
   initTheme,
   toggleTheme,
 } from "./stores";
@@ -58,6 +64,7 @@ beforeEach(() => {
   warnings.set([]);
   status.set("loading");
   errorMsg.set("");
+  checking.set(false);
   mockInvoke.mockReset();
   vi.useFakeTimers();
 });
@@ -191,6 +198,116 @@ describe("loadApps", () => {
 
     expect(get(status)).toBe("error");
     expect(get(errorMsg)).toBe("plain string failure");
+  });
+});
+
+// ── applyUpdates / updatableApps / updatesCount ──────────────────────────────
+
+describe("applyUpdates", () => {
+  it("merges update_available into matching apps by uid (immutable)", () => {
+    const a = makeApp("apt:a");
+    const b = makeApp("apt:b");
+    const c = makeApp("apt:c");
+    apps.set([a, b, c]);
+
+    applyUpdates([
+      ["apt:a", "2.0"],
+      ["apt:c", "9.1"],
+    ]);
+
+    const list = get(apps);
+    expect(list.find((x) => x.uid === "apt:a")?.update_available).toBe("2.0");
+    expect(list.find((x) => x.uid === "apt:b")?.update_available).toBeNull();
+    expect(list.find((x) => x.uid === "apt:c")?.update_available).toBe("9.1");
+    // Original objects are not mutated.
+    expect(a.update_available).toBeNull();
+    expect(b.update_available).toBeNull();
+  });
+
+  it("clears a previously-flagged app when it is absent from a new result", () => {
+    const a = { ...makeApp("apt:a"), update_available: "2.0" };
+    apps.set([a]);
+
+    applyUpdates([]); // nothing upgradable anymore
+
+    expect(get(apps)[0].update_available).toBeNull();
+  });
+
+  it("syncs the open (selected) app's flag with the merged result", () => {
+    const a = makeApp("apt:a");
+    apps.set([a]);
+    selected.set(a);
+
+    applyUpdates([["apt:a", "3.3"]]);
+
+    expect(get(selected)?.update_available).toBe("3.3");
+  });
+
+  it("drives updatableApps and updatesCount", () => {
+    apps.set([makeApp("apt:a"), makeApp("apt:b"), makeApp("snap:c")]);
+    expect(get(updatesCount)).toBe(0);
+
+    applyUpdates([
+      ["apt:a", "2.0"],
+      ["snap:c", "1.5"],
+    ]);
+
+    expect(get(updatableApps).map((x) => x.uid)).toEqual(["apt:a", "snap:c"]);
+    expect(get(updatesCount)).toBe(2);
+  });
+});
+
+describe("clearUpdate", () => {
+  it("clears the flag on one app and the open drawer, leaving others", () => {
+    const a = { ...makeApp("apt:a"), update_available: "2.0" };
+    const b = { ...makeApp("apt:b"), update_available: "3.0" };
+    apps.set([a, b]);
+    selected.set(a);
+
+    clearUpdate("apt:a");
+
+    const list = get(apps);
+    expect(list.find((x) => x.uid === "apt:a")?.update_available).toBeNull();
+    expect(list.find((x) => x.uid === "apt:b")?.update_available).toBe("3.0");
+    expect(get(selected)?.update_available).toBeNull();
+  });
+});
+
+describe("checkForUpdates", () => {
+  it("toasts an 'N updates available' summary and merges results", async () => {
+    apps.set([makeApp("apt:a"), makeApp("apt:b")]);
+    mockInvoke.mockResolvedValueOnce([["apt:a", "2.0"]] as [string, string][]);
+
+    await checkForUpdates();
+
+    expect(mockInvoke).toHaveBeenCalledWith("check_updates");
+    expect(get(updatesCount)).toBe(1);
+    expect(get(checking)).toBe(false);
+    const list = get(toasts);
+    expect(list).toHaveLength(1);
+    expect(list[0].kind).toBe("success");
+    expect(list[0].msg).toBe("1 update available");
+  });
+
+  it("toasts 'Up to date' when nothing is upgradable", async () => {
+    apps.set([makeApp("apt:a")]);
+    mockInvoke.mockResolvedValueOnce([] as [string, string][]);
+
+    await checkForUpdates();
+
+    expect(get(toasts)[0].msg).toBe("Up to date");
+  });
+
+  it("toasts an error and clears checking when the check rejects", async () => {
+    mockInvoke.mockRejectedValueOnce(new Error("check exploded"));
+
+    await checkForUpdates();
+
+    expect(get(checking)).toBe(false);
+    const list = get(toasts);
+    expect(list).toHaveLength(1);
+    expect(list[0].kind).toBe("error");
+    expect(list[0].msg).toBe("check exploded");
   });
 });
 

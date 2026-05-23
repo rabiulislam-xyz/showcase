@@ -4,7 +4,7 @@ import { get } from "svelte/store";
 import { tick } from "svelte";
 import AppDetail from "./AppDetail.svelte";
 import { selected, apps, toasts } from "$lib/stores";
-import { getAppDetails, uninstallApp, iconSrc, launchApp } from "$lib/api";
+import { getAppDetails, uninstallApp, iconSrc, launchApp, updateApp } from "$lib/api";
 import type { App } from "$lib/types";
 
 // Mock only the api boundary; the real stores drive selection/toasts so we can
@@ -14,12 +14,14 @@ vi.mock("$lib/api", () => ({
   getAppDetails: vi.fn<(uid: string) => Promise<string | null>>(),
   uninstallApp: vi.fn<(uid: string) => Promise<void>>(),
   launchApp: vi.fn<(uid: string) => Promise<void>>(),
+  updateApp: vi.fn<(uid: string) => Promise<void>>(),
 }));
 
 const mockGetDetails = vi.mocked(getAppDetails);
 const mockUninstall = vi.mocked(uninstallApp);
 const mockIconSrc = vi.mocked(iconSrc);
 const mockLaunch = vi.mocked(launchApp);
+const mockUpdate = vi.mocked(updateApp);
 
 function makeApp(overrides: Partial<App> = {}): App {
   return {
@@ -52,6 +54,7 @@ beforeEach(() => {
   mockUninstall.mockReset();
   mockIconSrc.mockReset();
   mockLaunch.mockReset();
+  mockUpdate.mockReset();
   mockIconSrc.mockReturnValue(null);
   mockGetDetails.mockResolvedValue("Firefox is a free web browser.");
 });
@@ -192,5 +195,58 @@ describe("AppDetail — Open button", () => {
       expect(list[0].kind).toBe("error");
       expect(list[0].msg).toBe("No such file");
     });
+  });
+});
+
+describe("AppDetail — Update button", () => {
+  it("is hidden when the app has no available update", () => {
+    selected.set(makeApp({ update_available: null }));
+    render(AppDetail);
+
+    expect(screen.queryByRole("button", { name: /update to/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the new version and on success calls updateApp, toasts, and clears the flag", async () => {
+    const app = makeApp({ update_available: "125.0" });
+    apps.set([app]);
+    selected.set(app);
+    mockUpdate.mockResolvedValueOnce(undefined);
+    render(AppDetail);
+
+    await fireEvent.click(screen.getByRole("button", { name: /update to 125\.0/i }));
+    await tick();
+
+    expect(mockUpdate).toHaveBeenCalledWith("apt:firefox");
+
+    await waitFor(() => {
+      const list = get(toasts);
+      expect(list).toHaveLength(1);
+      expect(list[0].kind).toBe("success");
+      expect(list[0].msg).toBe("Firefox updated");
+    });
+
+    // Flag cleared on the store entry and the open drawer.
+    expect(get(apps)[0].update_available).toBeNull();
+    expect(get(selected)?.update_available).toBeNull();
+  });
+
+  it("on PermissionDenied: shows an 'Authentication cancelled' error toast and keeps the flag", async () => {
+    const app = makeApp({ update_available: "125.0" });
+    apps.set([app]);
+    selected.set(app);
+    mockUpdate.mockRejectedValueOnce({ kind: "PermissionDenied" });
+    render(AppDetail);
+
+    await fireEvent.click(screen.getByRole("button", { name: /update to 125\.0/i }));
+
+    await waitFor(() => {
+      const list = get(toasts);
+      expect(list).toHaveLength(1);
+      expect(list[0].kind).toBe("error");
+      expect(list[0].msg).toBe("Authentication cancelled");
+    });
+
+    // Update failed → flag stays so the user can retry.
+    expect(get(apps)[0].update_available).toBe("125.0");
   });
 });

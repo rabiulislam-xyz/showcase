@@ -102,4 +102,16 @@ describe("AppCard", () => {
 
     expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "true");
   });
+
+  it("renders the update-available badge when the app is flagged", () => {
+    render(AppCard, { props: { app: makeApp({ update_available: "2.0" }) } });
+
+    expect(screen.getByLabelText("Update available")).toBeInTheDocument();
+  });
+
+  it("omits the update-available badge when not flagged", () => {
+    render(AppCard, { props: { app: makeApp({ update_available: null }) } });
+
+    expect(screen.queryByLabelText("Update available")).not.toBeInTheDocument();
+  });
 });
