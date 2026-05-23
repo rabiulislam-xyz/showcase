@@ -4,17 +4,28 @@
 
   let {
     open,
-    name,
-    sizeBytes,
+    // --- uninstall-specific props (kept for backwards compat) ---
+    name = undefined,
+    sizeBytes = null,
     aptNote = false,
+    // --- generic overrides (default to uninstall copy when not provided) ---
+    title = undefined,
+    message = undefined,
+    confirmLabel = undefined,
+    destructive = true,
+    // --- shared ---
     busy = false,
     onconfirm,
     oncancel,
   }: {
     open: boolean;
-    name: string;
-    sizeBytes: number | null;
+    name?: string;
+    sizeBytes?: number | null;
     aptNote?: boolean;
+    title?: string;
+    message?: string;
+    confirmLabel?: string;
+    destructive?: boolean;
     busy?: boolean;
     onconfirm: () => void;
     oncancel: () => void;
@@ -36,10 +47,13 @@
     }
   });
 
-  let body = $derived.by(() => {
+  let resolvedTitle = $derived(title ?? `Uninstall ${name ?? ""}?`);
+  let resolvedBody = $derived.by(() => {
+    if (message !== undefined) return message;
     const freed = sizeBytes ? ` This frees about ${humanSize(sizeBytes)} of disk space.` : "";
     return `This removes the application from your system.${freed} You may be asked for your password to continue.`;
   });
+  let resolvedLabel = $derived(confirmLabel ?? "Uninstall");
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape" && !busy) {
@@ -99,11 +113,15 @@
       bind:this={dialogEl}
       onkeydown={handleKeydown}
     >
-      <div class="modal-icon" aria-hidden="true">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+      <div class="modal-icon" class:modal-icon-neutral={!destructive} aria-hidden="true">
+        {#if destructive}
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+        {:else}
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        {/if}
       </div>
-      <h2 id="cd-title">Uninstall {name}?</h2>
-      <p id="cd-message">{body}</p>
+      <h2 id="cd-title">{resolvedTitle}</h2>
+      <p id="cd-message">{resolvedBody}</p>
       {#if aptNote}
         <div class="apt-note">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
@@ -115,7 +133,9 @@
           Cancel
         </button>
         <button
-          class="btn btn-destructive-solid"
+          class="btn"
+          class:btn-destructive-solid={destructive}
+          class:btn-primary-solid={!destructive}
           disabled={busy}
           bind:this={confirmBtn}
           onclick={onconfirm}
@@ -123,7 +143,7 @@
           {#if busy}
             <Spinner size={16} />
           {/if}
-          Uninstall
+          {resolvedLabel}
         </button>
       </div>
     </div>
@@ -179,6 +199,10 @@
     align-items: center;
     justify-content: center;
     margin-bottom: 16px;
+  }
+  .modal-icon.modal-icon-neutral {
+    background: var(--surface-2);
+    color: var(--text-muted);
   }
   .modal h2 {
     font-family: var(--serif);
@@ -254,5 +278,14 @@
   .btn-destructive-solid:hover:not(:disabled) {
     background: var(--destructive-hover);
     border-color: var(--destructive-hover);
+  }
+  .btn-primary-solid {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .btn-primary-solid:hover:not(:disabled) {
+    background: var(--accent-hover, color-mix(in oklab, var(--accent) 85%, #000));
+    border-color: var(--accent-hover, color-mix(in oklab, var(--accent) 85%, #000));
   }
 </style>

@@ -19,10 +19,12 @@
     updatableApps,
     updatesCount,
     pushToast,
+    clearUpdate,
   } from "$lib/stores";
   import type { Source } from "$lib/types";
   import type { SortKey } from "$lib/filter";
   import { updateAll } from "$lib/api";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import Dropdown from "./Dropdown.svelte";
   import Spinner from "./Spinner.svelte";
 
@@ -67,24 +69,30 @@
 
   // --- Update all ---
   let updatingAll = $state(false);
+  let updateAllOpen = $state(false);
 
-  async function handleUpdateAll() {
+  function openUpdateAllDialog() {
+    if ($updatesCount === 0 || updatingAll) return;
+    updateAllOpen = true;
+  }
+
+  async function handleUpdateAllConfirm() {
+    updateAllOpen = false;
     const targets = $updatableApps.map((a) => a.uid);
-    if (targets.length === 0 || updatingAll) return;
-    if (!confirm(`Update ${targets.length} app${targets.length === 1 ? "" : "s"}? You may be asked for your password.`)) {
-      return;
-    }
+    if (targets.length === 0) return;
     updatingAll = true;
     try {
       const { updated, errors } = await updateAll(targets);
       if (updated.length > 0) {
         pushToast("success", `${updated.length} app${updated.length === 1 ? "" : "s"} updated`);
+        // Clear badges only for apps that were actually updated — avoids wiping
+        // flags on apps that weren't part of this batch.
+        for (const uid of updated) clearUpdate(uid);
       }
       if (errors.length > 0) {
-        pushToast("error", `${errors.length} update${errors.length === 1 ? "" : "s"} failed`);
+        // Surface the first error message so the user can act on it.
+        pushToast("error", `${errors.length} update${errors.length === 1 ? "" : "s"} failed: ${errors[0]}`);
       }
-      // Re-load to pull fresh versions and clear the now-stale update flags.
-      await loadApps();
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : String(e));
     } finally {
@@ -135,7 +143,7 @@
           aria-label="Update all {$updatesCount} apps"
           disabled={updatingAll}
           aria-busy={updatingAll}
-          onclick={handleUpdateAll}
+          onclick={openUpdateAllDialog}
         >
           {#if updatingAll}
             <Spinner size={14} />
@@ -232,6 +240,17 @@
     </div>
   </div>
 </header>
+
+<ConfirmDialog
+  open={updateAllOpen}
+  title="Update all ({$updatesCount})?"
+  message="This updates {$updatesCount} app{$updatesCount === 1 ? '' : 's'} to their latest versions. You may be asked for your password."
+  confirmLabel="Update all"
+  destructive={false}
+  busy={updatingAll}
+  onconfirm={handleUpdateAllConfirm}
+  oncancel={() => { if (!updatingAll) updateAllOpen = false; }}
+/>
 
 <style>
   .header {
