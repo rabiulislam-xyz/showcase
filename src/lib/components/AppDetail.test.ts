@@ -250,3 +250,95 @@ describe("AppDetail — Update button", () => {
     expect(get(apps)[0].update_available).toBe("125.0");
   });
 });
+
+// ---------------------------------------------------------------------------
+// AppDetail — AppImage confirm wording
+// ---------------------------------------------------------------------------
+
+/**
+ * Clicks the footer Uninstall button and waits for the ConfirmDialog to appear.
+ * The drawer itself is also role="dialog", so we look for the one that has
+ * aria-labelledby="cd-title" (which ConfirmDialog sets).
+ */
+async function openUninstallDialog(): Promise<HTMLElement> {
+  const buttons = screen.getAllByRole("button", { name: /uninstall/i });
+  // Before click: no cd-title element, so the first (and only) "uninstall" button
+  // is the footer button.
+  await fireEvent.click(buttons[0]);
+  // ConfirmDialog mounts with aria-labelledby="cd-title".
+  const dialogs = screen.getAllByRole("dialog");
+  const confirmDialog = dialogs.find((d) => d.getAttribute("aria-labelledby") === "cd-title");
+  if (!confirmDialog) throw new Error("ConfirmDialog not found after clicking Uninstall");
+  return confirmDialog;
+}
+
+describe("AppDetail — AppImage delete confirm wording", () => {
+  it("shows 'Delete <name>?' as the dialog title for an AppImage app", async () => {
+    selected.set(
+      makeApp({ uid: "appimage:foo", source: "appimage", name: "Foo AppImage" }),
+    );
+    render(AppDetail);
+
+    const dialog = await openUninstallDialog();
+    expect(dialog).toHaveAccessibleName(/delete foo appimage\?/i);
+  });
+
+  it("shows 'permanently deletes the AppImage file' in the dialog body", async () => {
+    selected.set(
+      makeApp({ uid: "appimage:foo", source: "appimage", name: "Foo", size_bytes: 52_428_800 }),
+    );
+    render(AppDetail);
+
+    const dialog = await openUninstallDialog();
+    expect(dialog).toHaveTextContent(/permanently deletes the appimage file/i);
+  });
+
+  it("shows a free-space note in the body when size_bytes is known", async () => {
+    selected.set(
+      makeApp({ uid: "appimage:foo", source: "appimage", name: "Foo", size_bytes: 52_428_800 }),
+    );
+    render(AppDetail);
+
+    const dialog = await openUninstallDialog();
+    // 52_428_800 bytes = 50 MiB — humanSize will format it as something non-empty.
+    // Body must mention size (contains digits from formatted size).
+    expect(dialog.textContent).toMatch(/\d/);
+    expect(dialog.textContent).toMatch(/permanently deletes the appimage file/i);
+  });
+
+  it("confirm button label is 'Delete' for AppImage apps", async () => {
+    selected.set(
+      makeApp({ uid: "appimage:foo", source: "appimage", name: "Foo" }),
+    );
+    render(AppDetail);
+
+    const dialog = await openUninstallDialog();
+    expect(within(dialog).getByRole("button", { name: /^delete$/i })).toBeInTheDocument();
+  });
+
+  it("uses standard 'Uninstall <name>?' wording for apt apps", async () => {
+    selected.set(makeApp({ source: "apt", name: "Firefox" }));
+    render(AppDetail);
+
+    const dialog = await openUninstallDialog();
+    expect(dialog).toHaveAccessibleName(/uninstall firefox\?/i);
+    expect(within(dialog).getByRole("button", { name: /^uninstall$/i })).toBeInTheDocument();
+  });
+
+  it("uses standard 'Uninstall <name>?' wording for snap apps", async () => {
+    selected.set(makeApp({ uid: "snap:vlc", source: "snap", name: "VLC" }));
+    render(AppDetail);
+
+    const dialog = await openUninstallDialog();
+    expect(dialog).toHaveAccessibleName(/uninstall vlc\?/i);
+  });
+
+  it("no Update button for AppImage apps (update_available is null)", () => {
+    selected.set(
+      makeApp({ uid: "appimage:foo", source: "appimage", name: "Foo", update_available: null }),
+    );
+    render(AppDetail);
+
+    expect(screen.queryByRole("button", { name: /update to/i })).not.toBeInTheDocument();
+  });
+});

@@ -64,9 +64,20 @@ describe("sourceLabel", () => {
       ["apt", "APT"],
       ["flatpak", "Flatpak"],
       ["snap", "Snap"],
+      ["appimage", "AppImage"],
     ];
     for (const [source, label] of cases) {
       expect(sourceLabel(source)).toBe(label);
     }
+  });
+});
+
+describe("tileColor — appimage palette stability", () => {
+  it("returns a defined, stable color for a name starting with 'A' (appimage territory)", () => {
+    // The palette is deterministic: same name must always produce the same entry.
+    const color = tileColor("AppImage");
+    expect(PALETTE).toContain(color);
+    // Stable across calls — not random.
+    expect(tileColor("AppImage")).toBe(color);
   });
 });

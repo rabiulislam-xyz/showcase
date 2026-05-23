@@ -5,7 +5,7 @@ import { tick } from "svelte";
 import Header from "./Header.svelte";
 import { apps, toasts, updatableApps } from "$lib/stores";
 import { updateAll } from "$lib/api";
-import type { App } from "$lib/types";
+import type { App, Source } from "$lib/types";
 
 vi.mock("$lib/api", () => ({
   updateAll: vi.fn<(uids: string[]) => Promise<{ updated: string[]; errors: string[] }>>(),
@@ -25,7 +25,7 @@ const mockUpdateAll = vi.mocked(updateAll);
 function makeApp(overrides: Partial<App> = {}): App {
   return {
     uid: "apt:firefox",
-    source: "apt",
+    source: "apt" as Source,
     name: "Firefox",
     summary: null,
     description: null,
@@ -202,5 +202,40 @@ describe("Header — Update all dialog", () => {
       const updatable = get(updatableApps);
       expect(updatable.map((a) => a.uid)).toEqual([appB.uid]);
     });
+  });
+});
+
+describe("Header — AppImage source chip", () => {
+  it("renders an AppImage filter chip in the segmented control", () => {
+    apps.set([]);
+    render(Header);
+
+    // The segmented control must include an AppImage button.
+    const group = screen.getByRole("group", { name: /filter by source/i });
+    expect(within(group).getByRole("button", { name: /appimage/i })).toBeInTheDocument();
+  });
+
+  it("shows count 0 when no AppImage apps are present", () => {
+    apps.set([makeApp({ source: "apt" })]);
+    render(Header);
+
+    const group = screen.getByRole("group", { name: /filter by source/i });
+    const chip = within(group).getByRole("button", { name: /appimage/i });
+    // The count span inside the chip should read "0".
+    expect(chip).toHaveTextContent("0");
+  });
+
+  it("reflects the correct AppImage app count", () => {
+    apps.set([
+      makeApp({ uid: "appimage:foo", source: "appimage", name: "Foo" }),
+      makeApp({ uid: "appimage:bar", source: "appimage", name: "Bar" }),
+      makeApp({ source: "apt" }),
+    ]);
+    render(Header);
+
+    const group = screen.getByRole("group", { name: /filter by source/i });
+    const chip = within(group).getByRole("button", { name: /appimage/i });
+    // Chip text is "AppImage 2" (label + count).
+    expect(chip).toHaveTextContent("2");
   });
 });
