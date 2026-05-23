@@ -1,4 +1,5 @@
 pub mod model;
+pub mod appimage;
 pub mod desktop;
 pub mod runner;
 pub mod dpkg;
