@@ -8,6 +8,7 @@
     status,
     theme,
     toggleTheme,
+    selected,
   } from "$lib/stores";
   import type { Source } from "$lib/types";
   import type { SortKey } from "$lib/filter";
@@ -129,6 +130,7 @@
   let searchInput = $state<HTMLInputElement | undefined>();
 
   function onWindowKeydown(e: KeyboardEvent) {
+    if ($selected !== null) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       searchInput?.focus();

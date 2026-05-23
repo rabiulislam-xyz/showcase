@@ -36,13 +36,13 @@
 
 <div class="toast-stack">
   <!-- Errors: announced immediately. -->
-  <div class="toast-region" role="alert" aria-live="assertive" aria-atomic="false">
+  <div class="toast-region" aria-live="assertive" aria-atomic="false">
     {#each errorToasts as toast (toast.id)}
       {@render toastItem(toast)}
     {/each}
   </div>
   <!-- Successes: announced when the screen reader is idle. -->
-  <div class="toast-region" role="status" aria-live="polite" aria-atomic="false">
+  <div class="toast-region" aria-live="polite" aria-atomic="false">
     {#each successToasts as toast (toast.id)}
       {@render toastItem(toast)}
     {/each}
