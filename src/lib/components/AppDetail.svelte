@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { selected, removeApp, pushToast } from "$lib/stores";
-  import { iconSrc, getAppDetails, uninstallApp, launchApp } from "$lib/api";
+  import { selected, removeApp, pushToast, clearUpdate } from "$lib/stores";
+  import { iconSrc, getAppDetails, uninstallApp, launchApp, updateApp } from "$lib/api";
   import { humanSize, humanDate } from "$lib/format";
   import { tileColor, tileInitial, sourceLabel } from "$lib/avatar";
   import { parseAppError } from "$lib/errors";
   import ConfirmDialog from "./ConfirmDialog.svelte";
+  import Spinner from "./Spinner.svelte";
 
   let app = $derived($selected);
 
@@ -165,6 +166,27 @@
       pushToast("error", parseAppError(e).message);
     }
   }
+
+  // Update button busy state (separate from the uninstall `busy` flag).
+  let updating = $state(false);
+
+  async function handleUpdate() {
+    if (!app || updating) return;
+    const { uid, name } = app;
+    updating = true;
+    try {
+      await updateApp(uid);
+      pushToast("success", `${name} updated`);
+      clearUpdate(uid);
+    } catch (e: unknown) {
+      const err = parseAppError(e);
+      const msg =
+        err.kind === "PermissionDenied" ? "Authentication cancelled" : err.message;
+      pushToast("error", msg);
+    } finally {
+      updating = false;
+    }
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -241,6 +263,21 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>
           Open
         </button>
+        {#if app.update_available}
+          <button
+            class="btn btn-update"
+            disabled={updating}
+            aria-busy={updating}
+            onclick={handleUpdate}
+          >
+            {#if updating}
+              <Spinner size={14} />
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            {/if}
+            Update to {app.update_available}
+          </button>
+        {/if}
         <button
           class="btn btn-destructive"
           disabled={!app.removable || busy}
@@ -487,6 +524,20 @@
   .btn-primary:hover {
     background: var(--accent-hover, color-mix(in oklab, var(--accent) 85%, #000));
     border-color: var(--accent-hover, color-mix(in oklab, var(--accent) 85%, #000));
+  }
+  .btn-update {
+    color: var(--accent);
+    background: var(--accent-tint);
+    border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  }
+  .btn-update:hover:not(:disabled) {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .btn-update:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
   }
   .btn-destructive {
     color: var(--destructive);

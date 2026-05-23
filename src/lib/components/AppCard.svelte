@@ -50,6 +50,9 @@
     {#if app.version}
       <span class="card-version">{app.version}</span>
     {/if}
+    {#if app.update_available}
+      <span class="update-dot" title="Update available" aria-label="Update available"></span>
+    {/if}
   </div>
 </button>
 
@@ -126,6 +129,15 @@
     font-size: 12px;
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
+  }
+  .update-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-tint);
+    margin-left: auto;
+    flex-shrink: 0;
   }
 
   .tag {
