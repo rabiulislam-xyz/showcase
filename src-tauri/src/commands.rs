@@ -213,6 +213,11 @@ pub(crate) fn build_icon_lookup(
 ///   2. Source-specific heuristic key (snap pkg_ref, flatpak last dot-segment).
 ///   3. Falls back to None if no key hits.
 ///
+/// For registered AppImage apps (Source::AppImage with an existing icon_path),
+/// if icon_path is a bare icon name (not an absolute existing path), it is
+/// resolved via the icon index to an absolute path so the frontend gets a real
+/// asset path rather than a raw name string.
+///
 /// O(apps + entries) overall.
 fn resolve_icons(
     apps: &mut [App],
@@ -222,10 +227,28 @@ fn resolve_icons(
     let lookup = build_icon_lookup(entries);
 
     for app in apps.iter_mut() {
-        // Try keys in priority order; first hit wins.
-        let icon_name = resolve_icon_name(app, &lookup);
-        if let Some(name) = icon_name {
-            app.icon_path = icons::resolve_with_index(&name, index);
+        // For registered AppImage apps the icon_path may already be set to a
+        // bare icon name (from the .desktop Icon= field). Resolve it via the
+        // index so the frontend receives an absolute path, not a raw name.
+        if app.source == Source::AppImage {
+            if let Some(ref p) = app.icon_path.clone() {
+                // Only resolve non-absolute or non-existent paths (bare names).
+                // Leave absolute existing paths and None untouched.
+                if !p.is_absolute() || !p.exists() {
+                    app.icon_path =
+                        icons::resolve_with_index(&p.to_string_lossy(), index);
+                }
+            }
+            // Loose AppImages (icon_path None) fall through to the name-lookup
+            // below; they have no pre-set icon so the lookup map may still find one.
+        }
+
+        // Try keys in priority order; first hit wins (skipped if already resolved above).
+        if app.icon_path.is_none() {
+            let icon_name = resolve_icon_name(app, &lookup);
+            if let Some(name) = icon_name {
+                app.icon_path = icons::resolve_with_index(&name, index);
+            }
         }
     }
 }
@@ -946,6 +969,68 @@ mod tests {
         let mut sorted = names.clone();
         sorted.sort_by_key(|n| n.to_lowercase());
         assert_eq!(names, sorted, "apps not sorted after AppImage merge: {names:?}");
+    }
+
+    // ── resolve_icons: registered AppImage icon name → absolute path ──────────
+
+    #[test]
+    fn registered_appimage_icon_name_resolves_to_absolute_path() {
+        // Build a registered AppImage app with a bare icon name (as produced by
+        // appimages_from_desktop when the .desktop has Icon=gedit).
+        let mut ai = app(Source::AppImage, "/home/u/Apps/Foo.AppImage", true, None);
+        ai.icon_path = Some(PathBuf::from("gedit")); // bare name, not absolute
+
+        let index = icons::build_index(&icon_fixture_roots());
+        // resolve_icons mutates the slice in-place.
+        let entries: Vec<desktop::DesktopEntry> = vec![];
+        resolve_icons(std::slice::from_mut(&mut ai), &entries, &index);
+
+        let resolved = ai.icon_path.expect("icon_path should be resolved for registered AppImage");
+        assert!(
+            resolved.is_absolute(),
+            "resolved icon must be an absolute path, got: {resolved:?}"
+        );
+        assert!(
+            resolved.to_string_lossy().ends_with("gedit.png"),
+            "expected gedit.png fixture, got: {resolved:?}"
+        );
+    }
+
+    #[test]
+    fn loose_appimage_without_icon_is_unaffected_by_appimage_icon_resolution() {
+        // A loose scanned AppImage has icon_path = None; resolve_icons must not
+        // set it to anything unless a name-based lookup hit exists.
+        let mut ai = app(Source::AppImage, "/home/u/Apps/UnknownApp.AppImage", true, None);
+        // icon_path stays None (no bare name set, no lookup entry).
+        let index = icons::build_index(&icon_fixture_roots());
+        let entries: Vec<desktop::DesktopEntry> = vec![];
+        resolve_icons(std::slice::from_mut(&mut ai), &entries, &index);
+        assert!(
+            ai.icon_path.is_none(),
+            "loose AppImage with no icon should remain None, got: {:?}",
+            ai.icon_path
+        );
+    }
+
+    #[test]
+    fn registered_appimage_absolute_existing_icon_path_is_left_untouched() {
+        // An absolute existing path (e.g. an icon extracted by AppImageLauncher)
+        // must not be re-resolved through the index — it should stay as-is.
+        let me = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/icons.rs");
+        assert!(me.exists(), "prerequisite: icons.rs must exist");
+
+        let mut ai = app(Source::AppImage, "/home/u/Apps/Foo.AppImage", true, None);
+        ai.icon_path = Some(me.clone());
+
+        let index = icons::build_index(&icon_fixture_roots());
+        let entries: Vec<desktop::DesktopEntry> = vec![];
+        resolve_icons(std::slice::from_mut(&mut ai), &entries, &index);
+
+        assert_eq!(
+            ai.icon_path.as_ref(),
+            Some(&me),
+            "absolute existing icon path must not be overwritten"
+        );
     }
 
     // ── app_details_with ───────────────────────────────────────────────────────

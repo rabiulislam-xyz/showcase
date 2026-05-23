@@ -90,13 +90,19 @@ pub fn apt_is_essential(runner: &dyn crate::runner::CommandRunner, pkg: &str) ->
 /// AND lives under `$HOME` or `/opt/`.
 ///
 /// The `home` argument should be the value of `$HOME` without a trailing slash.
+/// An empty `home` never matches (prevents `/home/` prefix matching with no user).
+/// The home check is path-component-bounded (`{home}/`) so `/home/u` does not
+/// match `/home/userdata/...`.
 pub fn is_removable_appimage_path(path: &str, home: &str) -> bool {
     let lower = path.to_ascii_lowercase();
-    if !lower.ends_with(".appimage") {
+    let ends_appimage = lower.ends_with(".appimage");
+    if !ends_appimage {
         return false;
     }
-    // Must live under the user's home dir or /opt/.
-    path.starts_with(home) || path.starts_with("/opt/")
+    // Non-empty home AND path must start with home followed by a separator —
+    // prevents empty-home matches and loose prefix collisions (/home/u vs /home/user).
+    let under_home = !home.is_empty() && path.starts_with(&format!("{home}/"));
+    under_home || path.starts_with("/opt/")
 }
 
 /// Delete an AppImage file. If the path is under `$HOME`, remove directly;
@@ -116,13 +122,16 @@ pub(crate) fn delete_appimage(
         )));
     }
 
-    if path.starts_with(home) {
+    // Use the same bounded check as is_removable_appimage_path: non-empty home
+    // AND path-component-bounded prefix — /home/u does not match /home/userdata.
+    let under_home = !home.is_empty() && path.starts_with(&format!("{home}/"));
+    if under_home {
         // Under $HOME: unprivileged delete.
         std::fs::remove_file(path).map_err(|e| {
             crate::model::AppError::Backend(format!("failed to delete AppImage '{path}': {e}"))
         })?;
     } else {
-        // Under /opt/: need root.
+        // Under /opt/ (or any other validated location): need root.
         runner
             .run("pkexec", &["rm", "-f", path])
             .map(|_| ())
@@ -133,6 +142,8 @@ pub(crate) fn delete_appimage(
     }
 
     // Best-effort: remove the registered .desktop file.
+    // Note: a root-owned launcher under /usr/share/applications may remain if
+    // the .desktop was installed system-wide — this removal is best-effort only.
     if let Some(dp) = desktop_path {
         let _ = std::fs::remove_file(dp);
     }
@@ -308,6 +319,32 @@ mod tests {
     fn path_that_only_starts_with_opt_but_no_slash_is_not_removable() {
         // /opting/foo.AppImage — starts with "/opt" but not "/opt/" → must be refused.
         assert!(!is_removable_appimage_path("/opting/foo.AppImage", "/home/u"));
+    }
+
+    #[test]
+    fn empty_home_never_matches_even_if_path_starts_with_slash() {
+        // Empty $HOME must not match anything — guards against env var not set.
+        assert!(!is_removable_appimage_path("/x/Foo.AppImage", ""));
+        assert!(!is_removable_appimage_path("/home/someuser/Foo.AppImage", ""));
+    }
+
+    #[test]
+    fn home_prefix_must_be_path_component_bounded() {
+        // /home/u is the home; /home/u-backup/Foo.AppImage must NOT match —
+        // the check is bounded by a trailing slash, not a loose string prefix.
+        assert!(!is_removable_appimage_path("/home/u-backup/Foo.AppImage", "/home/u"));
+    }
+
+    #[test]
+    fn exact_home_path_is_removable() {
+        // /home/u/Foo.AppImage with home=/home/u — must match.
+        assert!(is_removable_appimage_path("/home/u/Foo.AppImage", "/home/u"));
+    }
+
+    #[test]
+    fn opt_appimage_is_removable_regardless_of_empty_home() {
+        // /opt paths are always privileged-deletable; home value is irrelevant.
+        assert!(is_removable_appimage_path("/opt/Bar.AppImage", ""))
     }
 
     // ── apt_is_essential ─────────────────────────────────────────────────────
