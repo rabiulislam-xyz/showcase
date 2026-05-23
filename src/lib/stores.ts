@@ -1,6 +1,6 @@
 import { writable, derived, get } from "svelte/store";
 import type { App } from "./types";
-import { listApps } from "./api";
+import { listApps, checkUpdates } from "./api";
 import { filterAndSort } from "./filter";
 import type { SortKey, SortDir } from "./filter";
 import { availableCategories } from "./categories";
@@ -17,6 +17,8 @@ export const warnings = writable<string[]>([]);
 export const selected = writable<App | null>(null);
 export const status = writable<"loading" | "ready" | "error">("loading");
 export const errorMsg = writable<string>("");
+/** True while an update check is in flight (drives the header spinner). */
+export const checking = writable<boolean>(false);
 
 // --- Sort actions ---
 
@@ -39,6 +41,13 @@ export function toggleSortDir(): void {
 
 /** Distinct main category groups present in the current app list (Other last). */
 export const availableCats = derived(apps, ($apps) => availableCategories($apps));
+
+/** Apps the most recent check flagged as having an available update. */
+export const updatableApps = derived(apps, ($apps) =>
+  $apps.filter((a) => a.update_available !== null),
+);
+
+export const updatesCount = derived(updatableApps, ($updatable) => $updatable.length);
 
 export const visibleApps = derived(
   [apps, query, sourceFilter, sortKey, sortDir, categoryFilter],
@@ -68,6 +77,58 @@ export function removeApp(uid: string): void {
   // Clear selected if the removed app was open in the detail drawer.
   if (get(selected)?.uid === uid) {
     selected.set(null);
+  }
+}
+
+/**
+ * Merge check results into the app list by uid (immutable).
+ * Each pair is [uid, available_version]; apps not in the result keep their
+ * existing flag, so re-checking only flips entries that actually changed.
+ */
+export function applyUpdates(pairs: [string, string][]): void {
+  const versions = new Map(pairs);
+  apps.update((list) =>
+    list.map((a) => {
+      const version = versions.get(a.uid) ?? null;
+      return version === a.update_available ? a : { ...a, update_available: version };
+    }),
+  );
+  // Keep the open drawer in sync with the merged flag.
+  const sel = get(selected);
+  if (sel) {
+    const version = versions.get(sel.uid) ?? null;
+    if (version !== sel.update_available) {
+      selected.set({ ...sel, update_available: version });
+    }
+  }
+}
+
+/** Clear the update flag on a single app (after it has been updated). */
+export function clearUpdate(uid: string): void {
+  apps.update((list) =>
+    list.map((a) => (a.uid === uid ? { ...a, update_available: null } : a)),
+  );
+  const sel = get(selected);
+  if (sel?.uid === uid && sel.update_available !== null) {
+    selected.set({ ...sel, update_available: null });
+  }
+}
+
+/**
+ * Check every source for updates, merge the results, and toast a summary.
+ * Per-source failures surface from the backend as a rejected promise.
+ */
+export async function checkForUpdates(): Promise<void> {
+  checking.set(true);
+  try {
+    const pairs = await checkUpdates();
+    applyUpdates(pairs);
+    const n = pairs.length;
+    pushToast("success", n > 0 ? `${n} update${n === 1 ? "" : "s"} available` : "Up to date");
+  } catch (e) {
+    pushToast("error", e instanceof Error ? e.message : String(e));
+  } finally {
+    checking.set(false);
   }
 }
 
