@@ -11,6 +11,7 @@ pub mod commands;
 pub mod details;
 pub mod uninstall;
 pub mod launch;
+pub mod updates;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
