@@ -241,6 +241,66 @@ pub(crate) fn validate_uninstall(source: Source, pkg_ref: &str, apps: &[App]) ->
     }
 }
 
+/// Verify a uid corresponds to an installed app (existence only — no removable check).
+/// Used for update operations where the removable flag is irrelevant.
+pub(crate) fn validate_app_exists(source: Source, pkg_ref: &str, apps: &[App]) -> Result<(), AppError> {
+    match apps.iter().find(|a| a.source == source && a.pkg_ref == pkg_ref) {
+        None => Err(AppError::NotFound(format!(
+            "{source:?}:{pkg_ref} is not an installed app"
+        ))),
+        Some(_) => Ok(()),
+    }
+}
+
+/// Run the existence guard then the privileged update. Sync and runner-injectable
+/// so the whole sequence is testable without real processes.
+///
+/// Guard order:
+///   1. `validate_app_exists` — app must be in the enumerated set.
+///   2. `build_update_command` + `runner.run`, mapping Backend stderr through
+///      `classify_error` (polkit-cancel → `PermissionDenied`).
+pub fn perform_update(
+    source: Source,
+    pkg_ref: &str,
+    runner: &dyn CommandRunner,
+    apps: &[App],
+) -> Result<(), AppError> {
+    // Guard: authoritative server-side check before any privileged call.
+    validate_app_exists(source, pkg_ref, apps)?;
+
+    let (prog, args) = crate::updates::build_update_command(source, pkg_ref);
+    let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+
+    runner
+        .run(prog, &argv)
+        .map(|_| ())
+        .map_err(|e| match e {
+            AppError::Backend(msg) => crate::uninstall::classify_error(&msg),
+            other => other,
+        })
+}
+
+/// Update an installed app identified by `uid` ("source:pkg_ref").
+///
+/// Guard fires before any privileged call; the heavy work runs off the async
+/// thread via `spawn_blocking` so the Tauri runtime is not stalled.
+#[tauri::command]
+pub async fn update_app(uid: String) -> Result<(), AppError> {
+    let (src, pkg) = uid
+        .split_once(':')
+        .ok_or_else(|| AppError::NotFound(uid.clone()))?;
+    let source = Source::parse(src)
+        .ok_or_else(|| AppError::NotFound(uid.clone()))?;
+    let pkg = pkg.to_string();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let apps = enumerate().apps;
+        perform_update(source, &pkg, &SystemRunner, &apps)
+    })
+    .await
+    .map_err(|e| AppError::Backend(format!("join: {e}")))?
+}
+
 /// Probe all three sources for available updates and return (uid, new_version) pairs.
 ///
 /// Warnings (e.g. apt/flatpak/snap source unavailable) are silently discarded; the
@@ -846,6 +906,99 @@ mod tests {
         );
         let apps = vec![app(Source::Apt, "gimp", true, None)];
         let res = perform_uninstall(Source::Apt, "gimp", &runner, &apps);
+        assert!(
+            matches!(res, Err(AppError::PermissionDenied(_))),
+            "auth-cancel stderr must classify as PermissionDenied, got {res:?}"
+        );
+    }
+
+    // ── validate_app_exists ────────────────────────────────────────────────────
+
+    #[test]
+    fn validate_app_exists_ok_when_found() {
+        let apps = vec![app(Source::Apt, "gimp", true, None)];
+        assert!(validate_app_exists(Source::Apt, "gimp", &apps).is_ok());
+    }
+
+    #[test]
+    fn validate_app_exists_ok_even_when_not_removable() {
+        // update doesn't care about removable — only existence matters.
+        let apps = vec![app(Source::Apt, "bash", false, Some("essential"))];
+        assert!(validate_app_exists(Source::Apt, "bash", &apps).is_ok());
+    }
+
+    #[test]
+    fn validate_app_exists_not_found_when_absent() {
+        let apps = vec![app(Source::Apt, "gimp", true, None)];
+        assert!(matches!(
+            validate_app_exists(Source::Snap, "gimp", &apps),
+            Err(AppError::NotFound(_))
+        ));
+        assert!(matches!(
+            validate_app_exists(Source::Apt, "ghost", &apps),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    // ── perform_update ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn perform_update_unknown_uid_is_not_found_and_runs_nothing() {
+        let runner = SpyRunner::new();
+        let apps = vec![app(Source::Apt, "gimp", true, None)];
+        let res = perform_update(Source::Apt, "ghost", &runner, &apps);
+        assert!(matches!(res, Err(AppError::NotFound(_))));
+        assert!(runner.calls().is_empty(), "no privileged call expected on unknown uid");
+    }
+
+    #[test]
+    fn perform_update_apt_happy_path_invokes_pkexec_with_correct_argv() {
+        let runner = SpyRunner::new().with("pkexec", "");
+        let apps = vec![app(Source::Apt, "gimp", true, None)];
+        let res = perform_update(Source::Apt, "gimp", &runner, &apps);
+        assert!(res.is_ok(), "expected Ok, got {res:?}");
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "pkexec");
+        assert_eq!(calls[0].1, vec!["apt-get", "-y", "install", "--only-upgrade", "gimp"]);
+    }
+
+    #[test]
+    fn perform_update_flatpak_happy_path_invokes_flatpak_update() {
+        let runner = SpyRunner::new().with("flatpak", "");
+        let apps = vec![app(Source::Flatpak, "org.gimp.GIMP", true, None)];
+        let res = perform_update(Source::Flatpak, "org.gimp.GIMP", &runner, &apps);
+        assert!(res.is_ok(), "expected Ok, got {res:?}");
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "flatpak");
+        assert_eq!(calls[0].1, vec!["update", "-y", "org.gimp.GIMP"]);
+    }
+
+    #[test]
+    fn perform_update_snap_happy_path_invokes_pkexec_snap_refresh() {
+        let runner = SpyRunner::new().with("pkexec", "");
+        let apps = vec![app(Source::Snap, "firefox", true, None)];
+        let res = perform_update(Source::Snap, "firefox", &runner, &apps);
+        assert!(res.is_ok(), "expected Ok, got {res:?}");
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "pkexec");
+        assert_eq!(calls[0].1, vec!["snap", "refresh", "firefox"]);
+    }
+
+    #[test]
+    fn perform_update_auth_fail_maps_to_permission_denied() {
+        let mut runner = SpyRunner::new();
+        runner.responses.insert(
+            "pkexec".to_string(),
+            Err(AppError::Backend("Not authorized to perform operation".into())),
+        );
+        let apps = vec![app(Source::Apt, "gimp", true, None)];
+        let res = perform_update(Source::Apt, "gimp", &runner, &apps);
         assert!(
             matches!(res, Err(AppError::PermissionDenied(_))),
             "auth-cancel stderr must classify as PermissionDenied, got {res:?}"
