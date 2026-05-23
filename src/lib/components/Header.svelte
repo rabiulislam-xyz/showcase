@@ -50,18 +50,78 @@
     loadApps();
   }
 
-  // --- Sort dropdown ---
+  // --- Sort dropdown (listbox keyboard model) ---
   let sortOpen = $state(false);
   let sortWrap = $state<HTMLDivElement | undefined>();
+  let sortBtn = $state<HTMLButtonElement | undefined>();
+  let listEl = $state<HTMLDivElement | undefined>();
+  // Index of the option highlighted via aria-activedescendant while open.
+  let activeIndex = $state(0);
+
+  const optionId = (i: number) => `sort-opt-${i}`;
+  let activeOptionId = $derived(sortOpen ? optionId(activeIndex) : undefined);
+
+  function openSort() {
+    // Start the highlight on the currently selected option.
+    const i = sorts.findIndex((s) => s.value === $sortKey);
+    activeIndex = i >= 0 ? i : 0;
+    sortOpen = true;
+    // Move focus into the list once it renders.
+    requestAnimationFrame(() => listEl?.focus());
+  }
+
+  function closeSort(returnFocus = true) {
+    sortOpen = false;
+    if (returnFocus) sortBtn?.focus();
+  }
+
+  function toggleSort() {
+    if (sortOpen) closeSort();
+    else openSort();
+  }
 
   function chooseSort(value: SortKey) {
     sortKey.set(value);
-    sortOpen = false;
+    closeSort();
+  }
+
+  function onListKeydown(e: KeyboardEvent) {
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        activeIndex = (activeIndex + 1) % sorts.length;
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        activeIndex = (activeIndex - 1 + sorts.length) % sorts.length;
+        break;
+      case "Home":
+        e.preventDefault();
+        activeIndex = 0;
+        break;
+      case "End":
+        e.preventDefault();
+        activeIndex = sorts.length - 1;
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        chooseSort(sorts[activeIndex].value);
+        break;
+      case "Escape":
+        e.preventDefault();
+        closeSort();
+        break;
+      case "Tab":
+        // Let focus leave naturally, but close the popup behind it.
+        closeSort(false);
+        break;
+    }
   }
 
   function onDocClick(e: MouseEvent) {
     if (sortOpen && sortWrap && !sortWrap.contains(e.target as Node)) {
-      sortOpen = false;
+      closeSort(false);
     }
   }
 
@@ -74,7 +134,7 @@
       searchInput?.focus();
       searchInput?.select();
     }
-    if (e.key === "Escape" && sortOpen) sortOpen = false;
+    if (e.key === "Escape" && sortOpen) closeSort();
   }
 </script>
 
@@ -98,7 +158,7 @@
         aria-label="Search applications"
         bind:value={$query}
       />
-      <kbd>⌘K</kbd>
+      <kbd>Ctrl K</kbd>
     </div>
 
     <div class="actions">
@@ -147,25 +207,43 @@
         <div class="sort-wrap" bind:this={sortWrap}>
           <button
             class="sort-select"
+            bind:this={sortBtn}
             aria-haspopup="listbox"
             aria-expanded={sortOpen}
-            onclick={() => (sortOpen = !sortOpen)}
+            aria-controls="sort-listbox"
+            onclick={toggleSort}
           >
             <span>{sortLabel}</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
           </button>
           {#if sortOpen}
-            <div class="sort-menu open" role="listbox" aria-label="Sort by">
-              {#each sorts as s (s.value)}
-                <button
+            <div
+              id="sort-listbox"
+              class="sort-menu open"
+              role="listbox"
+              tabindex="-1"
+              aria-label="Sort by"
+              aria-activedescendant={activeOptionId}
+              bind:this={listEl}
+              onkeydown={onListKeydown}
+            >
+              {#each sorts as s, i (s.value)}
+                <!-- Keyboard is handled on the listbox via aria-activedescendant;
+                     the click handler is only a pointer affordance. -->
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <div
+                  id={optionId(i)}
                   class="sort-menu-item"
+                  class:active={i === activeIndex}
                   role="option"
+                  tabindex="-1"
                   aria-selected={$sortKey === s.value}
                   onclick={() => chooseSort(s.value)}
+                  onmousemove={() => (activeIndex = i)}
                 >
                   <span>{s.label}</span>
                   <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-                </button>
+                </div>
               {/each}
             </div>
           {/if}
@@ -423,6 +501,12 @@
     padding: 4px;
     z-index: 100;
   }
+  /* The listbox container takes focus (aria-activedescendant model); the
+     highlighted option is shown via .active, so suppress the container ring. */
+  .sort-menu:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow);
+  }
   .sort-menu-item {
     display: flex;
     align-items: center;
@@ -433,9 +517,10 @@
     font-size: 13px;
     color: var(--text);
     text-align: left;
+    cursor: pointer;
     transition: background 150ms var(--ease);
   }
-  .sort-menu-item:hover {
+  .sort-menu-item.active {
     background: var(--surface-2);
   }
   .sort-menu-item .check {
