@@ -3,6 +3,7 @@
   import { iconSrc, getAppDetails, uninstallApp } from "$lib/api";
   import { humanSize, humanDate } from "$lib/format";
   import { tileColor, tileInitial, sourceLabel } from "$lib/avatar";
+  import { parseAppError } from "$lib/errors";
   import ConfirmDialog from "./ConfirmDialog.svelte";
 
   let app = $derived($selected);
@@ -131,18 +132,6 @@
     ];
   });
 
-  /** Detect a PermissionDenied error from the Tauri invoke result. */
-  function isPermissionDenied(e: unknown): boolean {
-    if (typeof e === "object" && e !== null) {
-      const obj = e as Record<string, unknown>;
-      if (obj["kind"] === "PermissionDenied") return true;
-    }
-    if (typeof e === "string") {
-      return e.includes("PermissionDenied") || e.toLowerCase().includes("permission denied");
-    }
-    return false;
-  }
-
   async function handleUninstallConfirm() {
     if (!app) return;
     const { uid, name } = app;
@@ -154,11 +143,11 @@
       removeApp(uid);
       confirmOpen = false;
     } catch (e: unknown) {
-      const msg = isPermissionDenied(e)
-        ? "Authentication cancelled — nothing was removed."
-        : typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const err = parseAppError(e);
+      const msg =
+        err.kind === "PermissionDenied"
+          ? "Authentication cancelled — nothing was removed."
+          : err.message;
       pushToast("error", msg);
       // Keep the drawer open; close the confirm dialog.
       confirmOpen = false;

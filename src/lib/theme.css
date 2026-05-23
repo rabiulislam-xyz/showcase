@@ -134,3 +134,11 @@ input {
     scroll-behavior: auto !important;
   }
 }
+
+/* Shared responsive app grid — used by AppGrid.svelte and the skeleton in +page.svelte. */
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}

@@ -35,7 +35,7 @@
     <StatusBanner />
 
   {#if $status === "loading"}
-    <div class="grid">
+    <div class="app-grid">
       {#each Array(SKELETON_COUNT) as _, i (i)}
         <SkeletonCard />
       {/each}
@@ -72,12 +72,6 @@
     max-width: 1400px;
     margin: 0 auto;
     padding: 32px;
-  }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 16px;
   }
 
   .empty,
