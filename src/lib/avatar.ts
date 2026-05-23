@@ -29,6 +29,7 @@ const SOURCE_LABELS: Record<Source, string> = {
   apt: "APT",
   flatpak: "Flatpak",
   snap: "Snap",
+  appimage: "AppImage",
 };
 
 /** Human display label for a source tag. */

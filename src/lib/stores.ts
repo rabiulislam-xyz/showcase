@@ -1,5 +1,5 @@
 import { writable, derived, get } from "svelte/store";
-import type { App } from "./types";
+import type { App, Source } from "./types";
 import { listApps, checkUpdates } from "./api";
 import { filterAndSort } from "./filter";
 import type { SortKey, SortDir } from "./filter";
@@ -8,7 +8,7 @@ import { availableCategories } from "./categories";
 // --- Writable stores ---
 
 export const query = writable<string>("");
-export const sourceFilter = writable<"all" | "apt" | "flatpak" | "snap">("all");
+export const sourceFilter = writable<"all" | Source>("all");
 export const sortKey = writable<SortKey>("name");
 export const sortDir = writable<SortDir>("asc");
 export const categoryFilter = writable<string>("all");

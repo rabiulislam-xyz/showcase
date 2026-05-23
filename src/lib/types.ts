@@ -1,4 +1,4 @@
-export type Source = "apt" | "flatpak" | "snap";
+export type Source = "apt" | "flatpak" | "snap" | "appimage";
 
 export interface App {
   uid: string;
