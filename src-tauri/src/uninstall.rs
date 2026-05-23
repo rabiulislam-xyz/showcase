@@ -86,6 +86,60 @@ pub fn apt_is_essential(runner: &dyn crate::runner::CommandRunner, pkg: &str) ->
     }
 }
 
+/// True if `path` is a deletable AppImage: ends in `.appimage` (case-insensitive)
+/// AND lives under `$HOME` or `/opt/`.
+///
+/// The `home` argument should be the value of `$HOME` without a trailing slash.
+pub fn is_removable_appimage_path(path: &str, home: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    if !lower.ends_with(".appimage") {
+        return false;
+    }
+    // Must live under the user's home dir or /opt/.
+    path.starts_with(home) || path.starts_with("/opt/")
+}
+
+/// Delete an AppImage file. If the path is under `$HOME`, remove directly;
+/// if under `/opt/`, use `pkexec rm -f` (requires elevated privileges).
+///
+/// Also removes the registered `.desktop` file and named hicolor icon if supplied.
+pub(crate) fn delete_appimage(
+    path: &str,
+    desktop_path: Option<&std::path::Path>,
+    home: &str,
+    runner: &dyn crate::runner::CommandRunner,
+) -> Result<(), crate::model::AppError> {
+    // Validate the path before touching anything.
+    if !is_removable_appimage_path(path, home) {
+        return Err(crate::model::AppError::Protected(format!(
+            "AppImage path '{path}' is not in a removable location (must be under $HOME or /opt/)"
+        )));
+    }
+
+    if path.starts_with(home) {
+        // Under $HOME: unprivileged delete.
+        std::fs::remove_file(path).map_err(|e| {
+            crate::model::AppError::Backend(format!("failed to delete AppImage '{path}': {e}"))
+        })?;
+    } else {
+        // Under /opt/: need root.
+        runner
+            .run("pkexec", &["rm", "-f", path])
+            .map(|_| ())
+            .map_err(|e| match e {
+                crate::model::AppError::Backend(msg) => classify_error(&msg),
+                other => other,
+            })?;
+    }
+
+    // Best-effort: remove the registered .desktop file.
+    if let Some(dp) = desktop_path {
+        let _ = std::fs::remove_file(dp);
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +274,40 @@ mod tests {
     fn empty_stderr_maps_to_backend() {
         let err = classify_error("");
         assert!(matches!(err, AppError::Backend(_)));
+    }
+
+    // ── is_removable_appimage_path ────────────────────────────────────────────
+
+    #[test]
+    fn home_appimage_is_removable() {
+        assert!(is_removable_appimage_path("/home/u/Applications/Foo.AppImage", "/home/u"));
+    }
+
+    #[test]
+    fn opt_appimage_is_removable() {
+        assert!(is_removable_appimage_path("/opt/Bar.AppImage", "/home/u"));
+    }
+
+    #[test]
+    fn usr_bin_path_is_not_removable() {
+        assert!(!is_removable_appimage_path("/usr/bin/x", "/home/u"));
+    }
+
+    #[test]
+    fn home_non_appimage_file_is_not_removable() {
+        assert!(!is_removable_appimage_path("/home/u/notes.txt", "/home/u"));
+    }
+
+    #[test]
+    fn appimage_extension_is_case_insensitive() {
+        assert!(is_removable_appimage_path("/home/u/Apps/tool.APPIMAGE", "/home/u"));
+        assert!(is_removable_appimage_path("/opt/tool.appimage", "/home/u"));
+    }
+
+    #[test]
+    fn path_that_only_starts_with_opt_but_no_slash_is_not_removable() {
+        // /opting/foo.AppImage — starts with "/opt" but not "/opt/" → must be refused.
+        assert!(!is_removable_appimage_path("/opting/foo.AppImage", "/home/u"));
     }
 
     // ── apt_is_essential ─────────────────────────────────────────────────────
