@@ -326,34 +326,41 @@ pub fn perform_uninstall(
 /// Launch an installed app identified by `uid` ("source:pkg_ref").
 ///
 /// Performs an authoritative lookup to confirm the app is installed before
-/// spawning. The child process is detached (new process group, stdio closed)
-/// so it outlives Showcase and does not block the Tauri runtime.
-/// Launch is an unprivileged user action — no polkit.
+/// spawning. The enumeration and lookup run on the blocking pool via
+/// `spawn_blocking` so the Tauri async runtime is never stalled. The child
+/// process is detached (new process group, stdio closed) so it outlives
+/// Showcase. Launch is an unprivileged user action — no polkit.
 #[tauri::command]
-pub fn launch_app(uid: String) -> Result<(), crate::model::AppError> {
+pub async fn launch_app(uid: String) -> Result<(), crate::model::AppError> {
     use crate::model::{AppError, Source};
     let (src, pkg) = uid.split_once(':').ok_or_else(|| AppError::NotFound(uid.clone()))?;
     let source = Source::parse(src).ok_or_else(|| AppError::NotFound(uid.clone()))?;
-    // Authoritative lookup: the app must actually be installed.
-    let apps = enumerate().apps;
-    let app = apps
-        .iter()
-        .find(|a| a.source == source && a.pkg_ref == pkg)
-        .ok_or_else(|| AppError::NotFound(uid.clone()))?;
-    let dp = app.desktop_path.as_ref().map(|p| p.to_string_lossy().into_owned());
-    let (prog, args) = crate::launch::build_launch_command(source, dp.as_deref(), pkg);
-    // Detached fire-and-forget: new process group so SIGHUP does not propagate;
-    // all stdio closed so the child has no reference to our file descriptors.
-    use std::os::unix::process::CommandExt as _;
-    std::process::Command::new(prog)
-        .args(&args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .process_group(0)
-        .spawn()
-        .map(|_child| ())
-        .map_err(|e| AppError::Backend(format!("launch failed: {e}")))
+    let pkg = pkg.to_string();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        // Authoritative lookup: the app must actually be installed.
+        let apps = enumerate().apps;
+        let app = apps
+            .iter()
+            .find(|a| a.source == source && a.pkg_ref == pkg)
+            .ok_or_else(|| AppError::NotFound(format!("{source:?}:{pkg}")))?;
+        let dp = app.desktop_path.as_ref().map(|p| p.to_string_lossy().into_owned());
+        let (prog, args) = crate::launch::build_launch_command(source, dp.as_deref(), &pkg);
+        // Detached fire-and-forget: new process group so SIGHUP does not propagate;
+        // all stdio closed so the child has no reference to our file descriptors.
+        use std::os::unix::process::CommandExt as _;
+        std::process::Command::new(prog)
+            .args(&args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .process_group(0)
+            .spawn()
+            .map(|_child| ())
+            .map_err(|e| AppError::Backend(format!("launch failed: {e}")))
+    })
+    .await
+    .map_err(|e| AppError::Backend(format!("join: {e}")))?
 }
 
 /// Remove an installed app identified by `uid` ("source:pkg_ref").

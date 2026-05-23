@@ -16,7 +16,7 @@ pub fn build_launch_command(
     match source {
         Source::Flatpak => ("flatpak", vec!["run".into(), pkg_ref.into()]),
         Source::Snap => ("snap", vec!["run".into(), pkg_ref.into()]),
-        // Apt apps always have a desktop path in practice; this is a harmless fallback.
+        // Unreachable in practice (apt always has a desktop path); fails gracefully if hit.
         Source::Apt => ("gio", vec!["launch".into(), pkg_ref.into()]),
     }
 }
