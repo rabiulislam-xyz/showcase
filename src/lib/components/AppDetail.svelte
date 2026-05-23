@@ -1,6 +1,6 @@
 <script lang="ts">
   import { selected, removeApp, pushToast } from "$lib/stores";
-  import { iconSrc, getAppDetails, uninstallApp } from "$lib/api";
+  import { iconSrc, getAppDetails, uninstallApp, launchApp } from "$lib/api";
   import { humanSize, humanDate } from "$lib/format";
   import { tileColor, tileInitial, sourceLabel } from "$lib/avatar";
   import { parseAppError } from "$lib/errors";
@@ -155,6 +155,16 @@
       busy = false;
     }
   }
+
+  async function handleOpen() {
+    if (!app) return;
+    try {
+      await launchApp(app.uid);
+      pushToast("success", `Launching ${app.name}…`);
+    } catch (e: unknown) {
+      pushToast("error", parseAppError(e).message);
+    }
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -226,15 +236,21 @@
 
     <div class="drawer-foot">
       <span class="footnote">Installed via {sourceLabel(app.source)}</span>
-      <button
-        class="btn btn-destructive"
-        disabled={!app.removable || busy}
-        title={app.removable ? undefined : (app.protected_reason ?? "This package is protected")}
-        onclick={() => { confirmOpen = true; }}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-        Uninstall
-      </button>
+      <div class="foot-actions">
+        <button class="btn btn-primary" onclick={handleOpen}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+          Open
+        </button>
+        <button
+          class="btn btn-destructive"
+          disabled={!app.removable || busy}
+          title={app.removable ? undefined : (app.protected_reason ?? "This package is protected")}
+          onclick={() => { confirmOpen = true; }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+          Uninstall
+        </button>
+      </div>
     </div>
 
     <ConfirmDialog
@@ -415,6 +431,11 @@
     gap: 12px;
     background: var(--surface);
   }
+  .foot-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .footnote {
     font-size: 12px;
     color: var(--text-faint);
@@ -457,6 +478,15 @@
     transition: all 150ms var(--ease);
     border: 1px solid transparent;
     white-space: nowrap;
+  }
+  .btn-primary {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .btn-primary:hover {
+    background: var(--accent-hover, color-mix(in oklab, var(--accent) 85%, #000));
+    border-color: var(--accent-hover, color-mix(in oklab, var(--accent) 85%, #000));
   }
   .btn-destructive {
     color: var(--destructive);

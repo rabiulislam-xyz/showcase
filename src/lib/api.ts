@@ -11,3 +11,6 @@ export const iconSrc = (app: App): string | null =>
 
 export const uninstallApp = (uid: string): Promise<void> =>
   invoke<void>("uninstall_app", { uid });
+
+export const launchApp = (uid: string): Promise<void> =>
+  invoke<void>("launch_app", { uid });

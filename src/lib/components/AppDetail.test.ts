@@ -4,7 +4,7 @@ import { get } from "svelte/store";
 import { tick } from "svelte";
 import AppDetail from "./AppDetail.svelte";
 import { selected, apps, toasts } from "$lib/stores";
-import { getAppDetails, uninstallApp, iconSrc } from "$lib/api";
+import { getAppDetails, uninstallApp, iconSrc, launchApp } from "$lib/api";
 import type { App } from "$lib/types";
 
 // Mock only the api boundary; the real stores drive selection/toasts so we can
@@ -13,11 +13,13 @@ vi.mock("$lib/api", () => ({
   iconSrc: vi.fn<(app: App) => string | null>(() => null),
   getAppDetails: vi.fn<(uid: string) => Promise<string | null>>(),
   uninstallApp: vi.fn<(uid: string) => Promise<void>>(),
+  launchApp: vi.fn<(uid: string) => Promise<void>>(),
 }));
 
 const mockGetDetails = vi.mocked(getAppDetails);
 const mockUninstall = vi.mocked(uninstallApp);
 const mockIconSrc = vi.mocked(iconSrc);
+const mockLaunch = vi.mocked(launchApp);
 
 function makeApp(overrides: Partial<App> = {}): App {
   return {
@@ -33,6 +35,7 @@ function makeApp(overrides: Partial<App> = {}): App {
     publisher: "Mozilla",
     categories: [],
     exec: null,
+    desktop_path: null,
     pkg_ref: "firefox",
     removable: true,
     protected_reason: null,
@@ -47,6 +50,7 @@ beforeEach(() => {
   mockGetDetails.mockReset();
   mockUninstall.mockReset();
   mockIconSrc.mockReset();
+  mockLaunch.mockReset();
   mockIconSrc.mockReturnValue(null);
   mockGetDetails.mockResolvedValue("Firefox is a free web browser.");
 });
@@ -151,5 +155,41 @@ describe("AppDetail — confirm flow", () => {
     // App stays; selection stays open.
     expect(get(apps).map((a) => a.uid)).toEqual(["apt:firefox"]);
     expect(get(selected)?.uid).toBe("apt:firefox");
+  });
+});
+
+describe("AppDetail — Open button", () => {
+  it("clicking Open calls launchApp and pushes a success toast", async () => {
+    const app = makeApp();
+    selected.set(app);
+    mockLaunch.mockResolvedValueOnce(undefined);
+    render(AppDetail);
+
+    await fireEvent.click(screen.getByRole("button", { name: /^open$/i }));
+
+    expect(mockLaunch).toHaveBeenCalledWith("apt:firefox");
+
+    await waitFor(() => {
+      const list = get(toasts);
+      expect(list).toHaveLength(1);
+      expect(list[0].kind).toBe("success");
+      expect(list[0].msg).toMatch(/Launching Firefox/i);
+    });
+  });
+
+  it("a rejected launchApp pushes an error toast", async () => {
+    const app = makeApp();
+    selected.set(app);
+    mockLaunch.mockRejectedValueOnce({ kind: "IoError", message: "No such file" });
+    render(AppDetail);
+
+    await fireEvent.click(screen.getByRole("button", { name: /^open$/i }));
+
+    await waitFor(() => {
+      const list = get(toasts);
+      expect(list).toHaveLength(1);
+      expect(list[0].kind).toBe("error");
+      expect(list[0].msg).toBe("No such file");
+    });
   });
 });

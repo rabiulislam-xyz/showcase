@@ -43,6 +43,7 @@ function makeApp(uid: string): App {
     publisher: null,
     categories: [],
     exec: null,
+    desktop_path: null,
     pkg_ref: uid,
     removable: true,
     protected_reason: null,

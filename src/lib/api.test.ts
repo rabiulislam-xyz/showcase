@@ -25,6 +25,7 @@ function makeApp(overrides: Partial<App> = {}): App {
     publisher: null,
     categories: [],
     exec: null,
+    desktop_path: null,
     pkg_ref: "firefox",
     removable: true,
     protected_reason: null,

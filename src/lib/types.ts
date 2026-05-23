@@ -13,6 +13,7 @@ export interface App {
   publisher: string | null;
   categories: string[];
   exec: string | null;
+  desktop_path: string | null;
   pkg_ref: string;
   removable: boolean;
   protected_reason: string | null;

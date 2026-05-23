@@ -3,15 +3,21 @@
     query,
     sourceFilter,
     sortKey,
+    sortDir,
+    categoryFilter,
+    availableCats,
     apps,
     loadApps,
     status,
     theme,
     toggleTheme,
     selected,
+    setSort,
+    toggleSortDir,
   } from "$lib/stores";
   import type { Source } from "$lib/types";
   import type { SortKey } from "$lib/filter";
+  import Dropdown from "./Dropdown.svelte";
 
   type FilterKey = "all" | Source;
 
@@ -28,15 +34,16 @@
     { key: "snap", label: "Snap", dot: "snap" },
   ];
 
-  const sorts: { value: SortKey; label: string }[] = [
+  const sortOptions: { value: SortKey; label: string }[] = [
     { value: "name", label: "Name" },
     { value: "size", label: "Size" },
     { value: "recent", label: "Recently installed" },
   ];
 
-  let sortLabel = $derived(
-    sorts.find((s) => s.value === $sortKey)?.label ?? "Name",
-  );
+  let categoryOptions = $derived([
+    { value: "all", label: "All categories" },
+    ...$availableCats.map((c) => ({ value: c, label: c })),
+  ]);
 
   let refreshing = $derived($status === "loading");
   // Drives the one-shot spin animation on refresh click.
@@ -51,81 +58,6 @@
     loadApps();
   }
 
-  // --- Sort dropdown (listbox keyboard model) ---
-  let sortOpen = $state(false);
-  let sortWrap = $state<HTMLDivElement | undefined>();
-  let sortBtn = $state<HTMLButtonElement | undefined>();
-  let listEl = $state<HTMLDivElement | undefined>();
-  // Index of the option highlighted via aria-activedescendant while open.
-  let activeIndex = $state(0);
-
-  const optionId = (i: number) => `sort-opt-${i}`;
-  let activeOptionId = $derived(sortOpen ? optionId(activeIndex) : undefined);
-
-  function openSort() {
-    // Start the highlight on the currently selected option.
-    const i = sorts.findIndex((s) => s.value === $sortKey);
-    activeIndex = i >= 0 ? i : 0;
-    sortOpen = true;
-    // Move focus into the list once it renders.
-    requestAnimationFrame(() => listEl?.focus());
-  }
-
-  function closeSort(returnFocus = true) {
-    sortOpen = false;
-    if (returnFocus) sortBtn?.focus();
-  }
-
-  function toggleSort() {
-    if (sortOpen) closeSort();
-    else openSort();
-  }
-
-  function chooseSort(value: SortKey) {
-    sortKey.set(value);
-    closeSort();
-  }
-
-  function onListKeydown(e: KeyboardEvent) {
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        activeIndex = (activeIndex + 1) % sorts.length;
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        activeIndex = (activeIndex - 1 + sorts.length) % sorts.length;
-        break;
-      case "Home":
-        e.preventDefault();
-        activeIndex = 0;
-        break;
-      case "End":
-        e.preventDefault();
-        activeIndex = sorts.length - 1;
-        break;
-      case "Enter":
-      case " ":
-        e.preventDefault();
-        chooseSort(sorts[activeIndex].value);
-        break;
-      case "Escape":
-        e.preventDefault();
-        closeSort();
-        break;
-      case "Tab":
-        // Let focus leave naturally, but close the popup behind it.
-        closeSort(false);
-        break;
-    }
-  }
-
-  function onDocClick(e: MouseEvent) {
-    if (sortOpen && sortWrap && !sortWrap.contains(e.target as Node)) {
-      closeSort(false);
-    }
-  }
-
   // --- Cmd/Ctrl+K to focus the search input ---
   let searchInput = $state<HTMLInputElement | undefined>();
 
@@ -136,11 +68,10 @@
       searchInput?.focus();
       searchInput?.select();
     }
-    if (e.key === "Escape" && sortOpen) closeSort();
   }
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} onclick={onDocClick} />
+<svelte:window onkeydown={onWindowKeydown} />
 
 <header class="header">
   <div class="header-inner">
@@ -189,67 +120,50 @@
     </div>
 
     <div class="filter-row">
-      <div class="segmented" role="group" aria-label="Filter by source">
-        {#each filters as f (f.key)}
-          <button
-            class="seg-btn"
-            class:active={$sourceFilter === f.key}
-            aria-pressed={$sourceFilter === f.key}
-            onclick={() => sourceFilter.set(f.key)}
-          >
-            {#if f.dot}<span class="seg-dot {f.dot}"></span>{/if}
-            <span>{f.label}</span>
-            <span class="count">{counts[f.key]}</span>
-          </button>
-        {/each}
+      <div class="filter-left">
+        <div class="segmented" role="group" aria-label="Filter by source">
+          {#each filters as f (f.key)}
+            <button
+              class="seg-btn"
+              class:active={$sourceFilter === f.key}
+              aria-pressed={$sourceFilter === f.key}
+              onclick={() => sourceFilter.set(f.key)}
+            >
+              {#if f.dot}<span class="seg-dot {f.dot}"></span>{/if}
+              <span>{f.label}</span>
+              <span class="count">{counts[f.key]}</span>
+            </button>
+          {/each}
+        </div>
+
+        <Dropdown
+          value={$categoryFilter}
+          options={categoryOptions}
+          onSelect={(v) => categoryFilter.set(v)}
+          ariaLabel="Filter by category"
+        />
       </div>
 
       <div class="sort">
         <span>Sort by</span>
-        <div class="sort-wrap" bind:this={sortWrap}>
-          <button
-            class="sort-select"
-            bind:this={sortBtn}
-            aria-haspopup="listbox"
-            aria-expanded={sortOpen}
-            aria-controls="sort-listbox"
-            onclick={toggleSort}
-          >
-            <span>{sortLabel}</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-          </button>
-          {#if sortOpen}
-            <div
-              id="sort-listbox"
-              class="sort-menu open"
-              role="listbox"
-              tabindex="-1"
-              aria-label="Sort by"
-              aria-activedescendant={activeOptionId}
-              bind:this={listEl}
-              onkeydown={onListKeydown}
-            >
-              {#each sorts as s, i (s.value)}
-                <!-- Keyboard is handled on the listbox via aria-activedescendant;
-                     the click handler is only a pointer affordance. -->
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <div
-                  id={optionId(i)}
-                  class="sort-menu-item"
-                  class:active={i === activeIndex}
-                  role="option"
-                  tabindex="-1"
-                  aria-selected={$sortKey === s.value}
-                  onclick={() => chooseSort(s.value)}
-                  onmousemove={() => (activeIndex = i)}
-                >
-                  <span>{s.label}</span>
-                  <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-                </div>
-              {/each}
-            </div>
+        <Dropdown
+          value={$sortKey}
+          options={sortOptions}
+          onSelect={(v) => setSort(v as SortKey)}
+          ariaLabel="Sort by"
+        />
+        <button
+          class="icon-btn sort-dir-btn"
+          aria-label={$sortDir === "asc" ? "Sort ascending" : "Sort descending"}
+          title={$sortDir === "asc" ? "Sort ascending" : "Sort descending"}
+          onclick={toggleSortDir}
+        >
+          {#if $sortDir === "asc"}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+          {:else}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
           {/if}
-        </div>
+        </button>
       </div>
     </div>
   </div>
@@ -465,6 +379,12 @@
     background: var(--snap);
   }
 
+  .filter-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
   .sort {
     display: inline-flex;
     align-items: center;
@@ -472,65 +392,10 @@
     color: var(--text-muted);
     font-size: 13px;
   }
-  .sort-wrap {
-    position: relative;
-  }
-  .sort-select {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 10px 6px 12px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-ctrl);
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 500;
-    transition: all 150ms var(--ease);
-  }
-  .sort-select:hover {
-    border-color: var(--border-strong);
-  }
-  .sort-menu {
-    position: absolute;
-    right: 0;
-    margin-top: 4px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-ctrl);
-    box-shadow: var(--shadow);
-    min-width: 200px;
-    padding: 4px;
-    z-index: 100;
-  }
-  /* The listbox container takes focus (aria-activedescendant model); the
-     highlighted option is shown via .active, so suppress the container ring. */
-  .sort-menu:focus-visible {
-    outline: none;
-    box-shadow: var(--shadow);
-  }
-  .sort-menu-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
-    font-size: 13px;
-    color: var(--text);
-    text-align: left;
-    cursor: pointer;
-    transition: background 150ms var(--ease);
-  }
-  .sort-menu-item.active {
-    background: var(--surface-2);
-  }
-  .sort-menu-item .check {
-    color: var(--accent);
-    opacity: 0;
-  }
-  .sort-menu-item[aria-selected="true"] .check {
-    opacity: 1;
+  /* Smaller than the header icon-btns (40px) to sit flush next to the dropdown */
+  .sort-dir-btn {
+    width: 32px;
+    height: 32px;
   }
 
   @media (max-width: 720px) {

@@ -2,25 +2,48 @@ import { writable, derived, get } from "svelte/store";
 import type { App } from "./types";
 import { listApps } from "./api";
 import { filterAndSort } from "./filter";
-import type { SortKey } from "./filter";
+import type { SortKey, SortDir } from "./filter";
+import { availableCategories } from "./categories";
 
 // --- Writable stores ---
 
 export const query = writable<string>("");
 export const sourceFilter = writable<"all" | "apt" | "flatpak" | "snap">("all");
 export const sortKey = writable<SortKey>("name");
+export const sortDir = writable<SortDir>("asc");
+export const categoryFilter = writable<string>("all");
 export const apps = writable<App[]>([]);
 export const warnings = writable<string[]>([]);
 export const selected = writable<App | null>(null);
 export const status = writable<"loading" | "ready" | "error">("loading");
 export const errorMsg = writable<string>("");
 
-// --- Derived store ---
+// --- Sort actions ---
+
+/** The natural starting direction for a key: alphabetical asc, others newest/largest first. */
+export function defaultDir(key: SortKey): SortDir {
+  return key === "name" ? "asc" : "desc";
+}
+
+/** Select a sort key and reset the direction to that key's natural default. */
+export function setSort(key: SortKey): void {
+  sortKey.set(key);
+  sortDir.set(defaultDir(key));
+}
+
+export function toggleSortDir(): void {
+  sortDir.update((d) => (d === "asc" ? "desc" : "asc"));
+}
+
+// --- Derived stores ---
+
+/** Distinct main category groups present in the current app list (Other last). */
+export const availableCats = derived(apps, ($apps) => availableCategories($apps));
 
 export const visibleApps = derived(
-  [apps, query, sourceFilter, sortKey],
-  ([$apps, $query, $sourceFilter, $sortKey]) =>
-    filterAndSort($apps, $query, $sourceFilter, $sortKey),
+  [apps, query, sourceFilter, sortKey, sortDir, categoryFilter],
+  ([$apps, $query, $sourceFilter, $sortKey, $sortDir, $categoryFilter]) =>
+    filterAndSort($apps, $query, $sourceFilter, $sortKey, $sortDir, $categoryFilter),
 );
 
 // --- Async action ---
