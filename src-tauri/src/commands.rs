@@ -7,8 +7,18 @@ use crate::model::{App, AppError, AppList, Source};
 use crate::runner::{CommandRunner, SystemRunner};
 use crate::sources::snap::{SnapSource, SnapdSocket};
 use crate::sources::{apt, flatpak};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// Result returned to the frontend after a bulk update attempt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateAllResult {
+    /// UIDs of apps whose source-level update call succeeded.
+    pub updated: Vec<String>,
+    /// Human-readable error strings for sources that failed.
+    pub errors: Vec<String>,
+}
 
 fn app_dirs() -> Vec<PathBuf> {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -296,6 +306,107 @@ pub async fn update_app(uid: String) -> Result<(), AppError> {
     tauri::async_runtime::spawn_blocking(move || {
         let apps = enumerate().apps;
         perform_update(source, &pkg, &SystemRunner, &apps)
+    })
+    .await
+    .map_err(|e| AppError::Backend(format!("join: {e}")))?
+}
+
+/// Build the batched update argv for a single source given a list of pkg_refs.
+///
+/// One privileged call per source rather than N calls, so the user sees a
+/// single polkit prompt. Returns `(program, args)` in arg-array form (no shell).
+///
+/// - apt:     `pkexec apt-get -y install --only-upgrade <pkg…>`
+/// - flatpak: `flatpak update -y <id…>`
+/// - snap:    `pkexec snap refresh <name…>`
+pub(crate) fn build_update_all_args(source: Source, pkg_refs: &[&str]) -> (&'static str, Vec<String>) {
+    match source {
+        Source::Apt => {
+            let mut args = vec!["apt-get".into(), "-y".into(), "install".into(), "--only-upgrade".into()];
+            args.extend(pkg_refs.iter().map(|s| s.to_string()));
+            ("pkexec", args)
+        }
+        Source::Flatpak => {
+            let mut args = vec!["update".into(), "-y".into()];
+            args.extend(pkg_refs.iter().map(|s| s.to_string()));
+            ("flatpak", args)
+        }
+        Source::Snap => {
+            let mut args = vec!["snap".into(), "refresh".into()];
+            args.extend(pkg_refs.iter().map(|s| s.to_string()));
+            ("pkexec", args)
+        }
+    }
+}
+
+/// Update all apps identified by `uids` in one batched call per source.
+///
+/// For each uid: validate existence first (no privileged call on unknown uid).
+/// Then group the surviving pkg_refs by source and run ONE batched privileged
+/// call per source. Per-source failure is isolated — other sources still run.
+/// Returns which uids were in a successful source call and which failed.
+pub fn perform_update_all(
+    uids: &[String],
+    runner: &dyn CommandRunner,
+    apps: &[App],
+) -> UpdateAllResult {
+    // Validate and group by source. Invalid/unknown uids go directly to errors.
+    let mut by_source: HashMap<Source, Vec<String>> = HashMap::new();
+    let mut errors: Vec<String> = Vec::new();
+
+    for uid in uids {
+        let Some((src_str, pkg_ref)) = uid.split_once(':') else {
+            errors.push(format!("{uid}: invalid uid format"));
+            continue;
+        };
+        let Some(source) = Source::parse(src_str) else {
+            errors.push(format!("{uid}: unknown source '{src_str}'"));
+            continue;
+        };
+        if let Err(e) = validate_app_exists(source, pkg_ref, apps) {
+            errors.push(format!("{uid}: {e}"));
+            continue;
+        }
+        by_source.entry(source).or_default().push(pkg_ref.to_string());
+    }
+
+    let mut updated: Vec<String> = Vec::new();
+
+    // One batched call per source. Continue past per-source failure.
+    for (source, pkg_refs) in &by_source {
+        let refs: Vec<&str> = pkg_refs.iter().map(String::as_str).collect();
+        let (prog, args) = build_update_all_args(*source, &refs);
+        let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+
+        match runner.run(prog, &argv).map(|_| ()).map_err(|e| match e {
+            AppError::Backend(msg) => crate::uninstall::classify_error(&msg),
+            other => other,
+        }) {
+            Ok(()) => {
+                // All pkg_refs in this batch succeeded.
+                for pkg_ref in pkg_refs {
+                    updated.push(App::make_uid(*source, pkg_ref));
+                }
+            }
+            Err(e) => {
+                errors.push(format!("{source:?}: {e}"));
+            }
+        }
+    }
+
+    UpdateAllResult { updated, errors }
+}
+
+/// Update a batch of apps identified by `uids` in one privileged call per source.
+///
+/// Validates each uid exists before any privileged call; groups surviving apps
+/// by source and issues one batched update per source. Per-source failures are
+/// collected rather than short-circuiting. Off-thread via `spawn_blocking`.
+#[tauri::command]
+pub async fn update_all(uids: Vec<String>) -> Result<UpdateAllResult, AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let apps = enumerate().apps;
+        Ok(perform_update_all(&uids, &SystemRunner, &apps))
     })
     .await
     .map_err(|e| AppError::Backend(format!("join: {e}")))?
@@ -1002,6 +1113,156 @@ mod tests {
         assert!(
             matches!(res, Err(AppError::PermissionDenied(_))),
             "auth-cancel stderr must classify as PermissionDenied, got {res:?}"
+        );
+    }
+
+    // ── build_update_all_args ──────────────────────────────────────────────────
+
+    #[test]
+    fn build_update_all_args_apt_produces_batched_pkexec_command() {
+        let (prog, args) = build_update_all_args(Source::Apt, &["gimp", "vim"]);
+        assert_eq!(prog, "pkexec");
+        assert_eq!(args, vec!["apt-get", "-y", "install", "--only-upgrade", "gimp", "vim"]);
+    }
+
+    #[test]
+    fn build_update_all_args_flatpak_produces_batched_flatpak_update() {
+        let (prog, args) = build_update_all_args(Source::Flatpak, &["org.gimp.GIMP", "org.x.App"]);
+        assert_eq!(prog, "flatpak");
+        assert_eq!(args, vec!["update", "-y", "org.gimp.GIMP", "org.x.App"]);
+    }
+
+    #[test]
+    fn build_update_all_args_snap_produces_batched_pkexec_snap_refresh() {
+        let (prog, args) = build_update_all_args(Source::Snap, &["firefox", "codium"]);
+        assert_eq!(prog, "pkexec");
+        assert_eq!(args, vec!["snap", "refresh", "firefox", "codium"]);
+    }
+
+    #[test]
+    fn build_update_all_args_shell_metacharacters_are_single_arg() {
+        let evil = "a; rm -rf ~";
+        let (prog, args) = build_update_all_args(Source::Apt, &[evil]);
+        assert_eq!(prog, "pkexec");
+        // evil string must be one verbatim element — no injection
+        assert_eq!(args.last().unwrap(), evil);
+        assert_eq!(args.len(), 5); // "apt-get", "-y", "install", "--only-upgrade", evil
+    }
+
+    // ── perform_update_all ─────────────────────────────────────────────────────
+
+    #[test]
+    fn perform_update_all_unknown_uid_goes_to_errors_and_runs_nothing() {
+        let runner = SpyRunner::new();
+        let apps = vec![app(Source::Apt, "gimp", true, None)];
+        let result = perform_update_all(&["apt:ghost".to_string()], &runner, &apps);
+        assert!(result.updated.is_empty(), "nothing should be updated");
+        assert_eq!(result.errors.len(), 1, "expected one error");
+        assert!(result.errors[0].contains("ghost"), "error should mention pkg_ref");
+        assert!(runner.calls().is_empty(), "no privileged call on unknown uid");
+    }
+
+    #[test]
+    fn perform_update_all_invalid_uid_format_goes_to_errors() {
+        let runner = SpyRunner::new();
+        let apps: Vec<App> = vec![];
+        let result = perform_update_all(&["no-colon-here".to_string()], &runner, &apps);
+        assert!(result.updated.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert!(runner.calls().is_empty());
+    }
+
+    #[test]
+    fn perform_update_all_apt_happy_path_runs_one_batched_call() {
+        let runner = SpyRunner::new().with("pkexec", "");
+        let apps = vec![
+            app(Source::Apt, "gimp", true, None),
+            app(Source::Apt, "vim", true, None),
+        ];
+        let uids = vec!["apt:gimp".to_string(), "apt:vim".to_string()];
+        let result = perform_update_all(&uids, &runner, &apps);
+
+        assert!(result.errors.is_empty(), "expected no errors, got: {:?}", result.errors);
+        assert!(result.updated.contains(&"apt:gimp".to_string()));
+        assert!(result.updated.contains(&"apt:vim".to_string()));
+
+        // Exactly ONE batched pkexec call (not two separate calls).
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1, "expected one batched call, got: {calls:?}");
+        assert_eq!(calls[0].0, "pkexec");
+        // Both packages in the single argv.
+        assert!(calls[0].1.contains(&"gimp".to_string()));
+        assert!(calls[0].1.contains(&"vim".to_string()));
+        assert!(calls[0].1.contains(&"--only-upgrade".to_string()));
+    }
+
+    #[test]
+    fn perform_update_all_mixed_sources_runs_one_call_per_source() {
+        let runner = SpyRunner::new()
+            .with("pkexec", "") // covers both apt and snap (keyed by program name)
+            .with("flatpak", "");
+        let apps = vec![
+            app(Source::Apt, "gimp", true, None),
+            app(Source::Flatpak, "org.gimp.GIMP", true, None),
+        ];
+        let uids = vec![
+            "apt:gimp".to_string(),
+            "flatpak:org.gimp.GIMP".to_string(),
+        ];
+        let result = perform_update_all(&uids, &runner, &apps);
+
+        assert!(result.errors.is_empty(), "expected no errors: {:?}", result.errors);
+        assert!(result.updated.contains(&"apt:gimp".to_string()));
+        assert!(result.updated.contains(&"flatpak:org.gimp.GIMP".to_string()));
+
+        // Two separate calls: one pkexec (apt), one flatpak.
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 2, "expected two calls (one per source): {calls:?}");
+    }
+
+    #[test]
+    fn perform_update_all_failing_source_continues_others() {
+        // apt succeeds, flatpak fails — snap uids not included.
+        let mut runner = SpyRunner::new().with("pkexec", "");
+        runner.responses.insert(
+            "flatpak".to_string(),
+            Err(AppError::Backend("flatpak daemon unreachable".into())),
+        );
+        let apps = vec![
+            app(Source::Apt, "gimp", true, None),
+            app(Source::Flatpak, "org.gimp.GIMP", true, None),
+        ];
+        let uids = vec![
+            "apt:gimp".to_string(),
+            "flatpak:org.gimp.GIMP".to_string(),
+        ];
+        let result = perform_update_all(&uids, &runner, &apps);
+
+        // apt succeeded.
+        assert!(result.updated.contains(&"apt:gimp".to_string()), "apt should succeed");
+        // flatpak failed → error, not in updated.
+        assert!(!result.updated.contains(&"flatpak:org.gimp.GIMP".to_string()));
+        assert_eq!(result.errors.len(), 1, "expected one error for flatpak");
+    }
+
+    #[test]
+    fn perform_update_all_auth_fail_maps_to_permission_denied_in_errors() {
+        let mut runner = SpyRunner::new();
+        runner.responses.insert(
+            "pkexec".to_string(),
+            Err(AppError::Backend("Not authorized to perform operation".into())),
+        );
+        let apps = vec![app(Source::Apt, "gimp", true, None)];
+        let result = perform_update_all(&["apt:gimp".to_string()], &runner, &apps);
+
+        assert!(result.updated.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        // classify_error maps "Not authorized" → PermissionDenied; the message
+        // should contain recognizable text from that variant.
+        assert!(
+            result.errors[0].contains("PermissionDenied") || result.errors[0].contains("permission denied") || result.errors[0].contains("authentication"),
+            "expected PermissionDenied-related message, got: {}",
+            result.errors[0]
         );
     }
 }
