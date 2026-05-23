@@ -1,5 +1,7 @@
 # Showcase — Plan 2: Browse UI — Implementation Plan
 
+> **Historical record — implemented.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. Steps use checkbox tracking. Frontend polish should follow superpowers:frontend-design (distinctive, production-grade, Adwaita-aligned — not generic AI aesthetics).
 
 **Goal:** Replace the stub list with a first-class, Adwaita-styled browsing UI: responsive app grid with icons, search, source filter, sort, an app-count header, a detail drawer with full metadata, and proper loading/empty/error+warning states.

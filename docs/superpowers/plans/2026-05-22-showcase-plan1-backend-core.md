@@ -1,5 +1,7 @@
 # Showcase — Plan 1: Backend Enumeration Core — Implementation Plan
 
+> **Historical record — implemented.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the Rust backend that enumerates every installed GUI app from apt, Flatpak, and Snap into a unified `App` list with metadata + resolved icons, exposed as a Tauri `list_apps` command and verified end-to-end with a stub UI.

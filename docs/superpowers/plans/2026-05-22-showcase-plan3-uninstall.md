@@ -1,5 +1,7 @@
 # Showcase — Plan 3: Uninstall — Implementation Plan
 
+> **Historical record — implemented.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. This plan touches a DESTRUCTIVE, privileged operation — guards, confirmation, and injection-safety are non-negotiable. Tests must NEVER perform a real removal (use injected fake command runners). Real end-to-end verification is done by the human authorizing (or cancelling) one polkit prompt.
 
 **Goal:** Let the user completely uninstall an installed app from the detail drawer — with a confirmation dialog (space freed), graphical polkit authentication, protected-package guards, progress/busy feedback, and the card removed on success.

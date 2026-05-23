@@ -1,5 +1,7 @@
 # Showcase — Ubuntu App Manager — Design Spec
 
+> **Implemented; some details evolved — see code as source of truth.**
+
 - **Date:** 2026-05-22
 - **Status:** Approved (design); pending implementation plan
 - **Target:** Ubuntu 22.04 LTS (jammy) and later, GNOME desktop
@@ -107,9 +109,10 @@ its native mechanism.
 ## 7. Icon resolution
 
 Resolve the `.desktop` `Icon=` value (a name or absolute path) to a concrete
-file via freedesktop icon-theme lookup (current theme → hicolor fallback,
-preferring scalable/large sizes). The resolved path is surfaced to the webview
-through Tauri's asset protocol. A bundled generic icon is the fallback.
+file via a pre-built icon index (`icons::build_index` / `icons::resolve_with_index`),
+preferring scalable/large sizes across the standard icon root directories. The
+resolved path is surfaced to the webview through Tauri's asset protocol. A
+bundled generic icon is the fallback.
 
 ## 8. Uninstall (destructive + privileged — guarded)
 
@@ -124,7 +127,8 @@ through Tauri's asset protocol. A bundled generic icon is the fallback.
 Common rules:
 - Always show a confirmation dialog naming exactly what will be removed and the
   disk space that will be freed.
-- Progress is streamed to the frontend via Tauri events.
+- Uninstall is synchronous from the frontend's perspective: the UI shows a busy
+  state while the operation runs; there are no live progress events.
 - Errors are typed and surfaced as toasts (including polkit cancellation).
 - **No shell string interpolation.** Use typed D-Bus calls and argument-array
   process execution only — package refs never reach a shell. Injection-safe.
@@ -137,11 +141,13 @@ Common rules:
 - `icons.rs` — icon name → resolved path.
 - `dpkg.rs` — build reverse index; parse `dpkg-query` output.
 - `snapd.rs` — unix-socket REST client for snapd.
-- `sources/apt.rs`, `sources/flatpak.rs`, `sources/snap.rs` — each implements
-  a common trait `AppSource { list(); enrich(); uninstall(); }`.
+- `sources/apt.rs`, `sources/flatpak.rs`, `sources/snap.rs` — each exposes
+  module-level functions (no shared `AppSource` trait; the trait was removed
+  in favour of direct function calls and injectable seams via `CommandRunner`
+  and `SnapSource`).
 - `commands.rs` — Tauri commands: `list_apps`, `get_app_details(uid)`,
-  `uninstall_app(uid)` (emits progress events).
-- `lib.rs` — wiring; Tauri capabilities locked to the above commands; CSP on.
+  `uninstall_app(uid)` (uses a busy/spinner state; no streaming progress events).
+- `lib.rs` — wiring; Tauri capabilities locked to the above commands; CSP set.
 
 Each source is independently testable behind the `AppSource` trait, with
 command output / fixture directories injectable so tests never touch the real
@@ -162,7 +168,7 @@ system.
    as resolved paths). Results stream to the grid as each source resolves, for
    fast first paint.
 2. Click an app → `get_app_details(uid)` lazily loads heavier metadata → drawer.
-3. Uninstall → confirm dialog → `uninstall_app(uid)` → polkit → progress events
+3. Uninstall → confirm dialog → `uninstall_app(uid)` → polkit → busy state
    → on success, remove the card and update totals.
 
 ## 11. Error handling
