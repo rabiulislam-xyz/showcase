@@ -1,6 +1,6 @@
 {
   "name": "showcase",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Ubuntu app manager — browse and uninstall installed apps",
   "type": "module",
   "scripts": {
