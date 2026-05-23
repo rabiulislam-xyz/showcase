@@ -1,16 +1,33 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { get } from "svelte/store";
 
 // Tauri's core module is unavailable in the Node test environment; stub it out
 // so that stores.ts (which transitively imports api.ts → @tauri-apps/api/core)
-// can be imported without throwing.
+// can be imported without throwing. invoke is mocked per-test for loadApps.
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
   convertFileSrc: vi.fn((p: string) => p),
 }));
 
-import { apps, selected, toasts, removeApp, pushToast, dismissToast } from "./stores";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  apps,
+  selected,
+  toasts,
+  warnings,
+  status,
+  errorMsg,
+  theme,
+  removeApp,
+  pushToast,
+  dismissToast,
+  loadApps,
+  initTheme,
+  toggleTheme,
+} from "./stores";
 import type { App } from "./types";
+
+const mockInvoke = vi.mocked(invoke);
 
 function makeApp(uid: string): App {
   return {
@@ -36,7 +53,15 @@ beforeEach(() => {
   apps.set([]);
   selected.set(null);
   toasts.set([]);
+  warnings.set([]);
+  status.set("loading");
+  errorMsg.set("");
+  mockInvoke.mockReset();
   vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 // ── removeApp ──────────────────────────────────────────────────────────────────
@@ -128,5 +153,121 @@ describe("dismissToast", () => {
     const remaining = get(toasts);
     expect(remaining).toHaveLength(1);
     expect(remaining[0].msg).toBe("second");
+  });
+});
+
+// ── loadApps ─────────────────────────────────────────────────────────────────
+
+describe("loadApps", () => {
+  it("sets apps + warnings and status 'ready' on success", async () => {
+    const a = makeApp("apt:a");
+    mockInvoke.mockResolvedValueOnce({ apps: [a], warnings: ["snap unavailable"] });
+
+    await loadApps();
+
+    expect(mockInvoke).toHaveBeenCalledWith("list_apps");
+    expect(get(apps)).toEqual([a]);
+    expect(get(warnings)).toEqual(["snap unavailable"]);
+    expect(get(status)).toBe("ready");
+    expect(get(errorMsg)).toBe("");
+  });
+
+  it("sets status 'error' and errorMsg when listApps rejects with an Error", async () => {
+    mockInvoke.mockRejectedValueOnce(new Error("backend exploded"));
+
+    await loadApps();
+
+    expect(get(status)).toBe("error");
+    expect(get(errorMsg)).toBe("backend exploded");
+    expect(get(apps)).toEqual([]);
+  });
+
+  it("stringifies a non-Error rejection into errorMsg", async () => {
+    mockInvoke.mockRejectedValueOnce("plain string failure");
+
+    await loadApps();
+
+    expect(get(status)).toBe("error");
+    expect(get(errorMsg)).toBe("plain string failure");
+  });
+});
+
+// ── theme: initTheme / toggleTheme ───────────────────────────────────────────
+
+const THEME_KEY = "showcase-theme";
+
+describe("theme store", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    delete document.documentElement.dataset.theme;
+    theme.set("light");
+  });
+
+  describe("initTheme", () => {
+    it("applies a saved 'dark' theme from localStorage", () => {
+      localStorage.setItem(THEME_KEY, "dark");
+
+      initTheme();
+
+      expect(get(theme)).toBe("dark");
+      expect(document.documentElement.dataset.theme).toBe("dark");
+    });
+
+    it("applies a saved 'light' theme from localStorage", () => {
+      localStorage.setItem(THEME_KEY, "light");
+
+      initTheme();
+
+      expect(get(theme)).toBe("light");
+      expect(document.documentElement.dataset.theme).toBe("light");
+    });
+
+    it("falls back to OS preference when nothing is saved", () => {
+      // jsdom has no matchMedia by default; stub a dark-preferring matcher.
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn().mockReturnValue({ matches: true } as MediaQueryList),
+      );
+
+      initTheme();
+
+      expect(get(theme)).toBe("dark");
+      expect(document.documentElement.dataset.theme).toBe("dark");
+
+      vi.unstubAllGlobals();
+    });
+
+    it("defaults to light when no preference and no matchMedia", () => {
+      vi.stubGlobal("matchMedia", undefined);
+
+      initTheme();
+
+      expect(get(theme)).toBe("light");
+      expect(document.documentElement.dataset.theme).toBe("light");
+
+      vi.unstubAllGlobals();
+    });
+  });
+
+  describe("toggleTheme", () => {
+    it("flips light → dark and persists + applies it", () => {
+      theme.set("light");
+
+      toggleTheme();
+
+      expect(get(theme)).toBe("dark");
+      expect(document.documentElement.dataset.theme).toBe("dark");
+      expect(localStorage.getItem(THEME_KEY)).toBe("dark");
+    });
+
+    it("flips dark → light and persists + applies it", () => {
+      theme.set("dark");
+
+      toggleTheme();
+
+      expect(get(theme)).toBe("light");
+      expect(document.documentElement.dataset.theme).toBe("light");
+      expect(localStorage.getItem(THEME_KEY)).toBe("light");
+    });
   });
 });
