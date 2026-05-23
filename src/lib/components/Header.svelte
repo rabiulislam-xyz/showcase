@@ -14,10 +14,17 @@
     selected,
     setSort,
     toggleSortDir,
+    checking,
+    checkForUpdates,
+    updatableApps,
+    updatesCount,
+    pushToast,
   } from "$lib/stores";
   import type { Source } from "$lib/types";
   import type { SortKey } from "$lib/filter";
+  import { updateAll } from "$lib/api";
   import Dropdown from "./Dropdown.svelte";
+  import Spinner from "./Spinner.svelte";
 
   type FilterKey = "all" | Source;
 
@@ -58,6 +65,33 @@
     loadApps();
   }
 
+  // --- Update all ---
+  let updatingAll = $state(false);
+
+  async function handleUpdateAll() {
+    const targets = $updatableApps.map((a) => a.uid);
+    if (targets.length === 0 || updatingAll) return;
+    if (!confirm(`Update ${targets.length} app${targets.length === 1 ? "" : "s"}? You may be asked for your password.`)) {
+      return;
+    }
+    updatingAll = true;
+    try {
+      const { updated, errors } = await updateAll(targets);
+      if (updated.length > 0) {
+        pushToast("success", `${updated.length} app${updated.length === 1 ? "" : "s"} updated`);
+      }
+      if (errors.length > 0) {
+        pushToast("error", `${errors.length} update${errors.length === 1 ? "" : "s"} failed`);
+      }
+      // Re-load to pull fresh versions and clear the now-stale update flags.
+      await loadApps();
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : String(e));
+    } finally {
+      updatingAll = false;
+    }
+  }
+
   // --- Cmd/Ctrl+K to focus the search input ---
   let searchInput = $state<HTMLInputElement | undefined>();
 
@@ -95,6 +129,36 @@
     </div>
 
     <div class="actions">
+      {#if $updatesCount > 0}
+        <button
+          class="btn-update-all"
+          aria-label="Update all {$updatesCount} apps"
+          disabled={updatingAll}
+          aria-busy={updatingAll}
+          onclick={handleUpdateAll}
+        >
+          {#if updatingAll}
+            <Spinner size={14} />
+          {:else}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+          {/if}
+          Update all ({$updatesCount})
+        </button>
+      {/if}
+      <button
+        class="icon-btn"
+        title="Check for updates"
+        aria-label="Check for updates"
+        disabled={$checking}
+        aria-busy={$checking}
+        onclick={checkForUpdates}
+      >
+        {#if $checking}
+          <Spinner size={18} />
+        {:else}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        {/if}
+      </button>
       <button
         class="icon-btn"
         class:spinning
@@ -314,6 +378,30 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  .btn-update-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 40px;
+    padding: 0 14px;
+    border-radius: var(--radius-ctrl);
+    font-size: 13px;
+    font-weight: 500;
+    color: #fff;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    white-space: nowrap;
+    transition: all 150ms var(--ease);
+  }
+  .btn-update-all:hover:not(:disabled) {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+  .btn-update-all:disabled {
+    cursor: default;
+    opacity: 0.7;
   }
 
   .filter-row {
