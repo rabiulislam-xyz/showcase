@@ -31,7 +31,7 @@
   type FilterKey = "all" | Source;
 
   let counts = $derived.by(() => {
-    const c = { all: $apps.length, apt: 0, flatpak: 0, snap: 0 };
+    const c = { all: $apps.length, apt: 0, flatpak: 0, snap: 0, appimage: 0 };
     for (const a of $apps) c[a.source] += 1;
     return c;
   });
@@ -41,6 +41,7 @@
     { key: "apt", label: "APT", dot: "apt" },
     { key: "flatpak", label: "Flatpak", dot: "flatpak" },
     { key: "snap", label: "Snap", dot: "snap" },
+    { key: "appimage", label: "AppImage", dot: "appimage" },
   ];
 
   const sortOptions: { value: SortKey; label: string }[] = [
@@ -484,6 +485,9 @@
   }
   .seg-dot.snap {
     background: var(--snap);
+  }
+  .seg-dot.appimage {
+    background: var(--appimage);
   }
 
   .filter-left {

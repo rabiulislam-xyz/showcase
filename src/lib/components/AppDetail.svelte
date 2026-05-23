@@ -167,6 +167,19 @@
     }
   }
 
+  // AppImage delete confirm wording — only active when source === "appimage".
+  let confirmTitle = $derived(
+    app?.source === "appimage" ? `Delete ${app.name}?` : undefined,
+  );
+  let confirmMessage = $derived.by(() => {
+    if (!app || app.source !== "appimage") return undefined;
+    const freed = app.size_bytes
+      ? ` This frees about ${humanSize(app.size_bytes)}.`
+      : "";
+    return `This permanently deletes the AppImage file.${freed}`;
+  });
+  let confirmLabel = $derived(app?.source === "appimage" ? "Delete" : undefined);
+
   // Update button busy state (separate from the uninstall `busy` flag).
   let updating = $state(false);
 
@@ -293,8 +306,11 @@
     <ConfirmDialog
       open={confirmOpen}
       name={app.name}
-      sizeBytes={app.size_bytes}
+      sizeBytes={app.source !== "appimage" ? app.size_bytes : null}
       aptNote={app.source === "apt"}
+      title={confirmTitle}
+      message={confirmMessage}
+      confirmLabel={confirmLabel}
       {busy}
       onconfirm={handleUninstallConfirm}
       oncancel={() => { if (!busy) confirmOpen = false; }}
@@ -500,6 +516,10 @@
   .tag.snap {
     color: var(--snap);
     background: var(--snap-tint);
+  }
+  .tag.appimage {
+    color: var(--appimage);
+    background: var(--appimage-tint);
   }
 
   .btn {
