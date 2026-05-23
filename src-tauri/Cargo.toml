@@ -1,6 +1,6 @@
 [package]
 name = "showcase"
-version = "0.1.0"
+version = "0.2.0"
 description = "Ubuntu app manager — browse and uninstall installed apps"
 authors = ["Rabiul Islam <rabiulislam993@live.com>"]
 edition = "2021"
