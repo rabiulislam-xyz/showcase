@@ -323,6 +323,39 @@ pub fn perform_uninstall(
         })
 }
 
+/// Launch an installed app identified by `uid` ("source:pkg_ref").
+///
+/// Performs an authoritative lookup to confirm the app is installed before
+/// spawning. The child process is detached (new process group, stdio closed)
+/// so it outlives Showcase and does not block the Tauri runtime.
+/// Launch is an unprivileged user action — no polkit.
+#[tauri::command]
+pub fn launch_app(uid: String) -> Result<(), crate::model::AppError> {
+    use crate::model::{AppError, Source};
+    let (src, pkg) = uid.split_once(':').ok_or_else(|| AppError::NotFound(uid.clone()))?;
+    let source = Source::parse(src).ok_or_else(|| AppError::NotFound(uid.clone()))?;
+    // Authoritative lookup: the app must actually be installed.
+    let apps = enumerate().apps;
+    let app = apps
+        .iter()
+        .find(|a| a.source == source && a.pkg_ref == pkg)
+        .ok_or_else(|| AppError::NotFound(uid.clone()))?;
+    let dp = app.desktop_path.as_ref().map(|p| p.to_string_lossy().into_owned());
+    let (prog, args) = crate::launch::build_launch_command(source, dp.as_deref(), pkg);
+    // Detached fire-and-forget: new process group so SIGHUP does not propagate;
+    // all stdio closed so the child has no reference to our file descriptors.
+    use std::os::unix::process::CommandExt as _;
+    std::process::Command::new(prog)
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map(|_child| ())
+        .map_err(|e| AppError::Backend(format!("launch failed: {e}")))
+}
+
 /// Remove an installed app identified by `uid` ("source:pkg_ref").
 ///
 /// Guards fire before any privileged call; the heavy work runs off the async
@@ -365,6 +398,7 @@ mod tests {
             publisher: None,
             categories: vec![],
             exec: None,
+            desktop_path: None,
             pkg_ref: pkg_ref.to_string(),
             removable,
             protected_reason: reason.map(str::to_string),

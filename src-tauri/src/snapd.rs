@@ -64,6 +64,7 @@ pub fn parse_snaps(body: &str) -> Result<Vec<App>, AppError> {
             publisher: s.publisher.and_then(|p| p.display_name),
             categories: Vec::new(),
             exec: None,
+            desktop_path: None,
             pkg_ref: s.name.clone(),
             removable: true,
             protected_reason: None,

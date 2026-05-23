@@ -44,7 +44,8 @@ mod tests {
             name: name.to_string(),
             summary: None, description: None, version: None, icon_path: None,
             size_bytes: None, install_date: None, publisher: None,
-            categories: vec![], exec: None, pkg_ref: name.to_string(),
+            categories: vec![], exec: None, desktop_path: None,
+            pkg_ref: name.to_string(),
             removable: true, protected_reason: None,
         }
     }

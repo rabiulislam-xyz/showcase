@@ -86,6 +86,7 @@ mod tests {
             publisher: None,
             categories: vec![],
             exec: None,
+            desktop_path: None,
             pkg_ref: name.to_string(),
             removable: true,
             protected_reason: None,

@@ -33,6 +33,7 @@ pub fn parse_list(output: &str) -> Vec<App> {
                 publisher: (!origin.is_empty()).then(|| origin.to_string()),
                 categories: Vec::new(),
                 exec: None,
+                desktop_path: None,
                 pkg_ref: app_id.to_string(),
                 removable: true,
                 protected_reason: None,

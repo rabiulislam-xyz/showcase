@@ -23,6 +23,7 @@ pub struct App {
     pub publisher: Option<String>,
     pub categories: Vec<String>,
     pub exec: Option<String>,
+    pub desktop_path: Option<std::path::PathBuf>,
     pub pkg_ref: String,
     pub removable: bool,
     pub protected_reason: Option<String>,

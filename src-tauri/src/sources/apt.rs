@@ -57,6 +57,7 @@ pub fn list_from(
                 publisher: None,
                 categories: e.categories.clone(),
                 exec: e.exec.clone(),
+                desktop_path: Some(e.path.clone()),
                 pkg_ref: pkg.clone(),
                 removable: info.map(|i| !i.essential).unwrap_or(true),
                 protected_reason: info
