@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Ubuntu app manager — browse and uninstall installed apps"
 authors = ["Rabiul Islam <rabiulislam993@live.com>"]
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/rabiulislam-xyz/showcase"
+rust-version = "1.77"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -227,7 +227,7 @@ pub(crate) fn resolve_icon_name(
 
 /// Verify a uid corresponds to an installed, removable app. Defense against a
 /// renderer requesting removal of an app that isn't shown / isn't removable.
-pub fn validate_uninstall(source: Source, pkg_ref: &str, apps: &[App]) -> Result<(), AppError> {
+pub(crate) fn validate_uninstall(source: Source, pkg_ref: &str, apps: &[App]) -> Result<(), AppError> {
     match apps.iter().find(|a| a.source == source && a.pkg_ref == pkg_ref) {
         None => Err(AppError::NotFound(format!(
             "{source:?}:{pkg_ref} is not an installed app"
@@ -271,20 +271,8 @@ pub fn app_details_with(
             details::parse_apt_description(&out)
         }
         "flatpak" => {
-            // `flatpak info` output is NOT Debian RFC822-indented, so parse_apt_description
-            // must not be used here. Scan for the first "Description:" or "Comment:" line
-            // and return the value on that same line.
             let out = runner.run("flatpak", &["info", pkg_ref]).ok()?;
-            out.lines().find_map(|l| {
-                let trimmed = l.trim();
-                let lower = trimmed.to_ascii_lowercase();
-                if lower.starts_with("description:") || lower.starts_with("comment:") {
-                    let val = trimmed.split_once(':').map(|(_, v)| v).unwrap_or("").trim();
-                    if !val.is_empty() { Some(val.to_string()) } else { None }
-                } else {
-                    None
-                }
-            })
+            details::parse_flatpak_description(&out)
         }
         "snap" => snap.description(pkg_ref),
         _ => None,
@@ -344,12 +332,8 @@ pub async fn uninstall_app(uid: String) -> Result<(), AppError> {
     let (src, pkg) = uid
         .split_once(':')
         .ok_or_else(|| AppError::NotFound(uid.clone()))?;
-    let source = match src {
-        "apt" => Source::Apt,
-        "flatpak" => Source::Flatpak,
-        "snap" => Source::Snap,
-        _ => return Err(AppError::NotFound(uid.clone())),
-    };
+    let source = Source::parse(src)
+        .ok_or_else(|| AppError::NotFound(uid.clone()))?;
     let pkg = pkg.to_string();
 
     // Enumerate the app set AND run the full guard + removal chain off the async

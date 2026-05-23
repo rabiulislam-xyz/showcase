@@ -1,3 +1,22 @@
+/// Scan `flatpak info` output for a single-line description.
+///
+/// `flatpak info` is NOT Debian RFC822-indented: the value sits on the same
+/// line as the key. Looks for the first `Description:` line; falls back to
+/// `Comment:` if none is found. Returns None if neither is present or both
+/// have an empty value.
+pub fn parse_flatpak_description(info_output: &str) -> Option<String> {
+    info_output.lines().find_map(|l| {
+        let trimmed = l.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("description:") || lower.starts_with("comment:") {
+            let val = trimmed.split_once(':').map(|(_, v)| v).unwrap_or("").trim();
+            if !val.is_empty() { Some(val.to_string()) } else { None }
+        } else {
+            None
+        }
+    })
+}
+
 /// Extract the long description from `apt-cache show <pkg>` output.
 ///
 /// Finds a `Description:` or `Description-en:` header, then collects the
@@ -63,6 +82,28 @@ fn collected_long_description(lines: &[String]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── parse_flatpak_description ──────────────────────────────────────────────
+
+    #[test]
+    fn flatpak_description_line_is_extracted() {
+        let input = "   ID: org.x.App\n   Description: A neat flatpak app\n   Version: 1.0\n";
+        assert_eq!(parse_flatpak_description(input).as_deref(), Some("A neat flatpak app"));
+    }
+
+    #[test]
+    fn flatpak_comment_is_fallback_when_no_description() {
+        let input = "   Comment: Short comment line\n   Version: 1.0\n";
+        assert_eq!(parse_flatpak_description(input).as_deref(), Some("Short comment line"));
+    }
+
+    #[test]
+    fn flatpak_returns_none_when_neither_field_present() {
+        let input = "   ID: org.x.App\n   Version: 1.0\n   Branch: stable\n";
+        assert_eq!(parse_flatpak_description(input), None);
+    }
+
+    // ── parse_apt_description ──────────────────────────────────────────────────
 
     // Realistic `apt-cache show` excerpt.
     const SHOW_BLOCK: &str = "\

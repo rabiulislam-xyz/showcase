@@ -37,6 +37,16 @@ impl Source {
             Source::Snap => "snap",
         }
     }
+
+    /// Parse a source id string. Returns None for unknown strings.
+    pub fn parse(s: &str) -> Option<Source> {
+        match s {
+            "apt" => Some(Source::Apt),
+            "flatpak" => Some(Source::Flatpak),
+            "snap" => Some(Source::Snap),
+            _ => None,
+        }
+    }
 }
 
 impl App {
@@ -73,6 +83,16 @@ pub enum AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_parse_round_trips() {
+        for src in [Source::Apt, Source::Flatpak, Source::Snap] {
+            assert_eq!(Source::parse(src.as_str()), Some(src), "round-trip failed for {src:?}");
+        }
+        assert_eq!(Source::parse("unknown"), None);
+        assert_eq!(Source::parse(""), None);
+        assert_eq!(Source::parse("APT"), None); // case-sensitive
+    }
 
     #[test]
     fn source_serializes_lowercase() {
