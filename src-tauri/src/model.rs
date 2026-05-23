@@ -7,6 +7,7 @@ pub enum Source {
     Apt,
     Flatpak,
     Snap,
+    AppImage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +38,7 @@ impl Source {
             Source::Apt => "apt",
             Source::Flatpak => "flatpak",
             Source::Snap => "snap",
+            Source::AppImage => "appimage",
         }
     }
 
@@ -46,6 +48,7 @@ impl Source {
             "apt" => Some(Source::Apt),
             "flatpak" => Some(Source::Flatpak),
             "snap" => Some(Source::Snap),
+            "appimage" => Some(Source::AppImage),
             _ => None,
         }
     }
@@ -88,7 +91,7 @@ mod tests {
 
     #[test]
     fn source_parse_round_trips() {
-        for src in [Source::Apt, Source::Flatpak, Source::Snap] {
+        for src in [Source::Apt, Source::Flatpak, Source::Snap, Source::AppImage] {
             assert_eq!(Source::parse(src.as_str()), Some(src), "round-trip failed for {src:?}");
         }
         assert_eq!(Source::parse("unknown"), None);
@@ -101,6 +104,14 @@ mod tests {
         assert_eq!(serde_json::to_string(&Source::Apt).unwrap(), "\"apt\"");
         assert_eq!(serde_json::to_string(&Source::Flatpak).unwrap(), "\"flatpak\"");
         assert_eq!(serde_json::to_string(&Source::Snap).unwrap(), "\"snap\"");
+        assert_eq!(serde_json::to_string(&Source::AppImage).unwrap(), "\"appimage\"");
+    }
+
+    #[test]
+    fn appimage_source_round_trips() {
+        assert_eq!(Source::AppImage.as_str(), "appimage");
+        assert_eq!(Source::parse("appimage"), Some(Source::AppImage));
+        assert_eq!(Source::parse("APPIMAGE"), None); // case-sensitive
     }
 
     #[test]

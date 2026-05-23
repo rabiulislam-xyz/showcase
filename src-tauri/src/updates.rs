@@ -44,6 +44,8 @@ pub fn build_update_command(source: Source, pkg_ref: &str) -> (&'static str, Vec
         Source::Apt => ("pkexec", vec!["apt-get".into(), "-y".into(), "install".into(), "--only-upgrade".into(), pkg_ref.into()]),
         Source::Flatpak => ("flatpak", vec!["update".into(), "-y".into(), pkg_ref.into()]),
         Source::Snap => ("pkexec", vec!["snap".into(), "refresh".into(), pkg_ref.into()]),
+        // AppImage self-update is out of scope; guarded upstream in perform_update.
+        Source::AppImage => ("true", vec![]),
     }
 }
 

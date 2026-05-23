@@ -18,6 +18,8 @@ pub fn build_launch_command(
         Source::Snap => ("snap", vec!["run".into(), pkg_ref.into()]),
         // Unreachable in practice (apt always has a desktop path); fails gracefully if hit.
         Source::Apt => ("gio", vec!["launch".into(), pkg_ref.into()]),
+        // Run the AppImage file directly, detached. Phase D refines this.
+        Source::AppImage => ("setsid", vec!["--fork".into(), pkg_ref.into()]),
     }
 }
 

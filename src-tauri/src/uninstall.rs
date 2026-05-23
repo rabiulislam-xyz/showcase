@@ -30,6 +30,8 @@ pub fn build_uninstall(source: Source, pkg_ref: &str) -> (&'static str, Vec<Stri
             "pkexec",
             vec!["snap".into(), "remove".into(), pkg_ref.into()],
         ),
+        // Placeholder — Phase D replaces this with a delete-file path.
+        Source::AppImage => ("true", vec![]),
     }
 }
 

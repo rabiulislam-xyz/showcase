@@ -171,6 +171,8 @@ pub(crate) fn build_icon_lookup(
                 }
             }
             Source::Apt => {}
+            // AppImage entries keyed by name only (no special heuristic stem).
+            Source::AppImage => {}
         }
     }
 
@@ -225,6 +227,8 @@ pub(crate) fn resolve_icon_name(
             keys
         }
         Source::Apt => Vec::new(),
+        // AppImage: no heuristic key; name-based lookup in key 1 is sufficient.
+        Source::AppImage => Vec::new(),
     };
     for key in heuristic_keys {
         if let Some(icon) = lookup.get(&(src, key)) {
@@ -275,6 +279,11 @@ pub fn perform_update(
     runner: &dyn CommandRunner,
     apps: &[App],
 ) -> Result<(), AppError> {
+    // AppImage apps have no update path.
+    if source == Source::AppImage {
+        return Err(AppError::Backend("AppImage apps cannot be updated".into()));
+    }
+
     // Guard: authoritative server-side check before any privileged call.
     validate_app_exists(source, pkg_ref, apps)?;
 
@@ -336,6 +345,8 @@ pub(crate) fn build_update_all_args(source: Source, pkg_refs: &[&str]) -> (&'sta
             args.extend(pkg_refs.iter().map(|s| s.to_string()));
             ("pkexec", args)
         }
+        // AppImage has no update path; guarded upstream before this is reached.
+        Source::AppImage => ("true", vec![]),
     }
 }
 
@@ -1052,6 +1063,18 @@ mod tests {
     }
 
     // ── perform_update ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn perform_update_appimage_is_refused_before_any_runner_call() {
+        let runner = SpyRunner::new();
+        let apps = vec![app(Source::AppImage, "/home/u/Apps/Foo.AppImage", true, None)];
+        let res = perform_update(Source::AppImage, "/home/u/Apps/Foo.AppImage", &runner, &apps);
+        assert!(
+            matches!(res, Err(AppError::Backend(_))),
+            "expected Backend error for AppImage update, got {res:?}"
+        );
+        assert!(runner.calls().is_empty(), "no runner call expected for AppImage update");
+    }
 
     #[test]
     fn perform_update_unknown_uid_is_not_found_and_runs_nothing() {
