@@ -72,13 +72,24 @@ pub fn scan_appimages(roots: &[PathBuf]) -> Vec<App> {
 
 /// Find AppImages registered by AppImageLauncher: desktop entries whose Exec
 /// field points at a *.AppImage path.
+///
+/// Strips surrounding double-quotes from the Exec token before the `.appimage`
+/// suffix check so a quoted path (e.g. `Exec="/a/b/Foo.AppImage" %U`) still
+/// matches.
 pub fn appimages_from_desktop(entries: &[DesktopEntry]) -> Vec<App> {
     let mut out = Vec::new();
     for entry in entries {
         let Some(exec_val) = entry.exec.as_deref() else { continue };
         let ai_path = exec_val
             .split_whitespace()
-            .find(|tok| tok.to_ascii_lowercase().ends_with(".appimage"));
+            .find_map(|tok| {
+                // Strip surrounding double-quotes if present before checking the
+                // suffix so `"/path/Foo.AppImage"` and `/path/Foo.AppImage` both match.
+                let tok = tok.trim_matches('"');
+                tok.to_ascii_lowercase()
+                    .ends_with(".appimage")
+                    .then_some(tok)
+            });
         let Some(ai_path) = ai_path else { continue };
         let name = entry
             .name
@@ -133,7 +144,6 @@ pub fn list(roots: &[PathBuf], entries: &[DesktopEntry]) -> Vec<App> {
 }
 
 /// Return the error for update attempts on AppImage apps.
-#[allow(dead_code)]
 pub fn update_error() -> AppError {
     AppError::Backend("AppImage apps cannot be updated".into())
 }
@@ -241,6 +251,20 @@ mod tests {
         let entries = vec![desktop_entry_fixture("Snap App", "snap run myapp")];
         let apps = appimages_from_desktop(&entries);
         assert!(apps.is_empty());
+    }
+
+    #[test]
+    fn detects_quoted_exec_path() {
+        // Quoted path: Exec="/home/u/Apps/Foo.AppImage" %U
+        let entries = vec![desktop_entry_fixture(
+            "Foo",
+            "\"/home/u/Apps/Foo.AppImage\" %U",
+        )];
+        let apps = appimages_from_desktop(&entries);
+        assert_eq!(apps.len(), 1, "quoted Exec path must be detected: {apps:?}");
+        let a = &apps[0];
+        assert_eq!(a.pkg_ref, "/home/u/Apps/Foo.AppImage", "quotes must be stripped from path");
+        assert_eq!(a.name, "Foo");
     }
 
     #[test]
