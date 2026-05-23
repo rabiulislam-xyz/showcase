@@ -241,6 +241,22 @@ pub(crate) fn validate_uninstall(source: Source, pkg_ref: &str, apps: &[App]) ->
     }
 }
 
+/// Probe all three sources for available updates and return (uid, new_version) pairs.
+///
+/// Warnings (e.g. apt/flatpak/snap source unavailable) are silently discarded; the
+/// frontend treats an empty result as "nothing to update". The apt metadata refresh
+/// (`pkexec apt-get update`) and the listing queries are blocking I/O, so the whole
+/// call runs on the blocking pool via `spawn_blocking`.
+#[tauri::command]
+pub async fn check_updates() -> Result<Vec<(String, String)>, AppError> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let (pairs, _warnings) = crate::updates::check_updates_with(&SystemRunner);
+        Ok(pairs)
+    })
+    .await
+    .map_err(|e| AppError::Backend(format!("join: {e}")))?
+}
+
 #[tauri::command]
 pub fn list_apps() -> AppList {
     let agg = enumerate();
