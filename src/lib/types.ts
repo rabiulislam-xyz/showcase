@@ -17,6 +17,7 @@ export interface App {
   pkg_ref: string;
   removable: boolean;
   protected_reason: string | null;
+  update_available: string | null;
 }
 
 export interface AppList {

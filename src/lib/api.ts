@@ -14,3 +14,15 @@ export const uninstallApp = (uid: string): Promise<void> =>
 
 export const launchApp = (uid: string): Promise<void> =>
   invoke<void>("launch_app", { uid });
+
+/** Check every source for available updates → [uid, available_version] pairs. */
+export const checkUpdates = (): Promise<[string, string][]> =>
+  invoke<[string, string][]>("check_updates");
+
+export const updateApp = (uid: string): Promise<void> =>
+  invoke<void>("update_app", { uid });
+
+export const updateAll = (
+  uids: string[],
+): Promise<{ updated: string[]; errors: string[] }> =>
+  invoke<{ updated: string[]; errors: string[] }>("update_all", { uids });

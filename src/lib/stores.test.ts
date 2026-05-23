@@ -47,6 +47,7 @@ function makeApp(uid: string): App {
     pkg_ref: uid,
     removable: true,
     protected_reason: null,
+    update_available: null,
   };
 }
 

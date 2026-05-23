@@ -39,6 +39,7 @@ function makeApp(overrides: Partial<App> = {}): App {
     pkg_ref: "firefox",
     removable: true,
     protected_reason: null,
+    update_available: null,
     ...overrides,
   };
 }

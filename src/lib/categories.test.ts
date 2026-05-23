@@ -20,6 +20,7 @@ function makeApp(categories: string[]): App {
     pkg_ref: "test",
     removable: true,
     protected_reason: null,
+    update_available: null,
   };
 }
 

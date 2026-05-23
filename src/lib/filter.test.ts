@@ -29,6 +29,7 @@ function makeApp(partial: {
     pkg_ref: partial.uid,
     removable: true,
     protected_reason: null,
+    update_available: null,
   };
 }
 
