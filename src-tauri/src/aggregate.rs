@@ -46,7 +46,7 @@ mod tests {
             size_bytes: None, install_date: None, publisher: None,
             categories: vec![], exec: None, desktop_path: None,
             pkg_ref: name.to_string(),
-            removable: true, protected_reason: None,
+            removable: true, protected_reason: None, update_available: None,
         }
     }
 

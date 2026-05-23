@@ -27,6 +27,7 @@ pub struct App {
     pub pkg_ref: String,
     pub removable: bool,
     pub protected_reason: Option<String>,
+    pub update_available: Option<String>,
 }
 
 impl Source {

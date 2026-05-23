@@ -37,6 +37,7 @@ pub fn parse_list(output: &str) -> Vec<App> {
                 pkg_ref: app_id.to_string(),
                 removable: true,
                 protected_reason: None,
+                update_available: None,
             })
         })
         .collect()

@@ -409,6 +409,7 @@ mod tests {
             pkg_ref: pkg_ref.to_string(),
             removable,
             protected_reason: reason.map(str::to_string),
+            update_available: None,
         }
     }
 

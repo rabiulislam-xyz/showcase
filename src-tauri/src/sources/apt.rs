@@ -63,6 +63,7 @@ pub fn list_from(
                 protected_reason: info
                     .filter(|i| i.essential)
                     .map(|_| "Essential system package".to_string()),
+                update_available: None,
             }
         })
         .collect();

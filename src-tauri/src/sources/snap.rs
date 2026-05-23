@@ -90,6 +90,7 @@ mod tests {
             pkg_ref: name.to_string(),
             removable: true,
             protected_reason: None,
+            update_available: None,
         }
     }
 

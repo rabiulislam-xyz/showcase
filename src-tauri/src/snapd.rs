@@ -68,6 +68,7 @@ pub fn parse_snaps(body: &str) -> Result<Vec<App>, AppError> {
             pkg_ref: s.name.clone(),
             removable: true,
             protected_reason: None,
+            update_available: None,
         })
         .collect();
     Ok(apps)
