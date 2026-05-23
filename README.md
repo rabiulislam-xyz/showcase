@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/logo.png" width="104" alt="Showcase logo" />
+
 # Showcase
 
 **See and manage every app installed on your Linux system — `apt`, Flatpak, and Snap — in one clean, native desktop app.**
