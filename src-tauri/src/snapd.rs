@@ -182,4 +182,80 @@ mod tests {
         assert_eq!(a.publisher.as_deref(), Some("Mozilla"));
         assert_eq!(a.install_date.as_deref(), Some("2026-03-01T10:00:00Z"));
     }
+
+    #[test]
+    fn missing_optional_fields_yield_none_values() {
+        // Only the required `name` + `type`; everything else absent. Optional
+        // fields must default to None / absent rather than failing the parse.
+        let body = r#"{"type":"sync","result":[{"name":"hello","type":"app"}]}"#;
+        let apps = parse_snaps(body).unwrap();
+        assert_eq!(apps.len(), 1);
+        let a = &apps[0];
+        assert_eq!(a.uid, "snap:hello");
+        assert_eq!(a.name, "hello");
+        assert!(a.version.is_none());
+        assert!(a.size_bytes.is_none());
+        assert!(a.install_date.is_none());
+        assert!(a.summary.is_none());
+        assert!(a.publisher.is_none());
+        assert!(a.removable);
+    }
+
+    #[test]
+    fn zero_installed_size_becomes_none() {
+        // installed-size:0 means "unknown" → size_bytes None, not Some(0).
+        let body =
+            r#"{"type":"sync","result":[{"name":"hello","type":"app","installed-size":0}]}"#;
+        let apps = parse_snaps(body).unwrap();
+        assert_eq!(apps.len(), 1);
+        assert!(apps[0].size_bytes.is_none());
+    }
+
+    #[test]
+    fn malformed_json_is_backend_error() {
+        let body = "{ this is not valid json ";
+        assert!(matches!(parse_snaps(body), Err(AppError::Backend(_))));
+    }
+
+    #[test]
+    fn empty_version_string_becomes_none() {
+        // An explicit empty `version` must collapse to None (no Some("")).
+        let body = r#"{"type":"sync","result":[{"name":"hello","type":"app","version":""}]}"#;
+        let apps = parse_snaps(body).unwrap();
+        assert!(apps[0].version.is_none());
+    }
+
+    #[test]
+    fn publisher_without_display_name_is_none() {
+        let body = r#"{"type":"sync","result":[{"name":"hello","type":"app","publisher":{}}]}"#;
+        let apps = parse_snaps(body).unwrap();
+        assert!(apps[0].publisher.is_none());
+    }
+
+    // `get_snap_description` needs the live socket, but its post-fetch JSON
+    // shape + empty-description filter are exercised here against the same
+    // `SingleSnapResponse` type the function deserializes into.
+    #[test]
+    fn single_snap_empty_description_filters_to_none() {
+        let body = r#"{"type":"sync","result":{"description":""}}"#;
+        let resp: SingleSnapResponse = serde_json::from_str(body).unwrap();
+        assert_eq!(resp.result.description.filter(|s| !s.is_empty()), None);
+    }
+
+    #[test]
+    fn single_snap_present_description_is_kept() {
+        let body = r#"{"type":"sync","result":{"description":"A real description"}}"#;
+        let resp: SingleSnapResponse = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            resp.result.description.filter(|s| !s.is_empty()).as_deref(),
+            Some("A real description")
+        );
+    }
+
+    #[test]
+    fn single_snap_missing_description_is_none() {
+        let body = r#"{"type":"sync","result":{}}"#;
+        let resp: SingleSnapResponse = serde_json::from_str(body).unwrap();
+        assert_eq!(resp.result.description.filter(|s| !s.is_empty()), None);
+    }
 }
