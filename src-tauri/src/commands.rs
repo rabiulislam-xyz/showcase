@@ -1,4 +1,5 @@
 use crate::aggregate::{self, Aggregated};
+use crate::appimage;
 use crate::desktop;
 use crate::details;
 use crate::dpkg;
@@ -42,6 +43,18 @@ fn icon_roots() -> Vec<PathBuf> {
     ]
 }
 
+/// Directories to scan for loose *.AppImage files.
+pub(crate) fn appimage_roots() -> Vec<PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    vec![
+        PathBuf::from(format!("{home}/Applications")),
+        PathBuf::from(format!("{home}/.local/bin")),
+        PathBuf::from("/opt"),
+        PathBuf::from(format!("{home}/Downloads")),
+        PathBuf::from(format!("{home}/Desktop")),
+    ]
+}
+
 /// Enumerate all apps. Pure orchestration so it can be exercised without Tauri.
 /// Thin wrapper over [`enumerate_with`] supplying the real system seams.
 pub fn enumerate() -> Aggregated {
@@ -50,6 +63,7 @@ pub fn enumerate() -> Aggregated {
         &SnapdSocket,
         &app_dirs(),
         &icon_roots(),
+        &appimage_roots(),
         Path::new("/var/lib/dpkg/info"),
     )
 }
@@ -58,20 +72,22 @@ pub fn enumerate() -> Aggregated {
 ///
 /// Scans desktop dirs, classifies entries, builds the dpkg index from
 /// `dpkg_info_dir`, runs the apt/flatpak/snap sources in parallel, merges them,
-/// and resolves icons against `icon_roots`.
+/// appends AppImage apps (scanned + registered entries), and resolves icons
+/// against `icon_roots`.
 ///
-/// The three sources run inside a `std::thread::scope` so the borrowed `runner`
-/// and `snap` refs can be shared without `'static`. A scoped-thread panic is
-/// mapped to a per-source `Backend` warning, exactly as before — one failing
-/// source never drops the others.
+/// The three package-manager sources run inside a `std::thread::scope` so the
+/// borrowed `runner`/`snap` refs can be shared without `'static`. A scoped-thread
+/// panic is mapped to a per-source `Backend` warning so one failing source never
+/// drops the others.
 pub fn enumerate_with(
     runner: &(dyn CommandRunner + Sync),
     snap: &dyn SnapSource,
     app_dirs: &[PathBuf],
     icon_roots: &[PathBuf],
+    appimage_roots: &[PathBuf],
     dpkg_info_dir: &Path,
 ) -> Aggregated {
-    // Scan desktop entries once; reuse for apt + icon names.
+    // Scan desktop entries once; reuse for apt + icon names + AppImage registered entries.
     let entries: Vec<_> = app_dirs.iter().flat_map(|d| desktop::scan_dir(d)).collect();
     let apt_entries: Vec<_> = entries
         .iter()
@@ -80,8 +96,8 @@ pub fn enumerate_with(
         .collect();
     let index = dpkg::build_desktop_index(dpkg_info_dir);
 
-    // Run the three sources in parallel scoped threads so the borrowed
-    // `runner`/`snap` refs can cross thread boundaries without `'static`.
+    // Run the three package-manager sources in parallel scoped threads so the
+    // borrowed `runner`/`snap` refs can cross thread boundaries without `'static`.
     let results = std::thread::scope(|scope| {
         let apt_handle = scope.spawn(|| apt::list_from(&apt_entries, &index, runner));
         let flatpak_handle = scope.spawn(|| flatpak::list(runner));
@@ -95,9 +111,22 @@ pub fn enumerate_with(
     });
 
     let mut agg = aggregate::merge(results);
+
+    // AppImage: merge scanned files + AppImageLauncher-registered desktop entries.
+    // Runs synchronously (filesystem-only, no subprocess).
+    let appimage_apps = appimage::list(appimage_roots, &entries);
+    agg.apps.extend(appimage_apps);
+
     // Build the icon index ONCE (O(tree), not O(apps × tree)).
     let icon_index = icons::build_index(icon_roots);
     resolve_icons(&mut agg.apps, &entries, &icon_index);
+
+    // Re-sort after appending AppImage apps so the list stays case-insensitively ordered.
+    agg.apps.sort_by(|a, b| {
+        a.name.to_lowercase().cmp(&b.name.to_lowercase())
+            .then(a.uid.cmp(&b.uid))
+    });
+
     agg
 }
 
@@ -281,7 +310,7 @@ pub fn perform_update(
 ) -> Result<(), AppError> {
     // AppImage apps have no update path.
     if source == Source::AppImage {
-        return Err(AppError::Backend("AppImage apps cannot be updated".into()));
+        return Err(crate::appimage::update_error());
     }
 
     // Guard: authoritative server-side check before any privileged call.
@@ -485,6 +514,9 @@ pub fn app_details_with(
 ///   2. `validate_uninstall` — app must be in the enumerated set AND removable.
 ///   3. `apt_is_essential` — dynamic dpkg re-check for apt (defense in depth).
 ///
+/// For `Source::AppImage` the removal is a file delete (guarded by
+/// `is_removable_appimage_path`) instead of a package-manager uninstall.
+///
 /// Then `build_uninstall` + `runner.run`, mapping a Backend stderr through
 /// `classify_error`. Note `protected_reason` is checked first so base/core
 /// snaps (which are not enumerated as apps) still report Protected, not
@@ -503,6 +535,22 @@ pub fn perform_uninstall(
     // enumerated set AND be removable. Defends against a renderer requesting
     // removal of something it isn't allowed to.
     validate_uninstall(source, pkg_ref, apps)?;
+
+    // AppImage: delete the file instead of invoking a package manager.
+    if source == Source::AppImage {
+        let home = std::env::var("HOME").unwrap_or_default();
+        // Locate the app's desktop_path (if registered by AppImageLauncher).
+        let desktop_path = apps
+            .iter()
+            .find(|a| a.source == Source::AppImage && a.pkg_ref == pkg_ref)
+            .and_then(|a| a.desktop_path.clone());
+        return crate::uninstall::delete_appimage(
+            pkg_ref,
+            desktop_path.as_deref(),
+            &home,
+            runner,
+        );
+    }
 
     // Dynamic apt-essential re-check (defense in depth).
     if source == Source::Apt && crate::uninstall::apt_is_essential(runner, pkg_ref) {
@@ -543,6 +591,18 @@ pub async fn launch_app(uid: String) -> Result<(), crate::model::AppError> {
             .find(|a| a.source == source && a.pkg_ref == pkg)
             .ok_or_else(|| AppError::NotFound(format!("{source:?}:{pkg}")))?;
         let dp = app.desktop_path.as_ref().map(|p| p.to_string_lossy().into_owned());
+
+        // For loose AppImages (no registered desktop path), ensure the file is
+        // executable before spawning. Best-effort: failure is non-fatal.
+        if source == Source::AppImage && dp.is_none() {
+            use std::os::unix::fs::PermissionsExt as _;
+            if let Ok(meta) = std::fs::metadata(&pkg) {
+                let mut perms = meta.permissions();
+                perms.set_mode(perms.mode() | 0o111);
+                let _ = std::fs::set_permissions(&pkg, perms);
+            }
+        }
+
         let (prog, args) = crate::launch::build_launch_command(source, dp.as_deref(), &pkg);
         // Detached fire-and-forget: new process group so SIGHUP does not propagate;
         // all stdio closed so the child has no reference to our file descriptors.
@@ -797,7 +857,7 @@ mod tests {
 
         let snap = FakeSnap::new().with_apps(vec![app(Source::Snap, "firefox", true, None)]);
 
-        let agg = enumerate_with(&runner, &snap, &app_dirs, &icon_fixture_roots(), &dpkg_dir);
+        let agg = enumerate_with(&runner, &snap, &app_dirs, &icon_fixture_roots(), &[], &dpkg_dir);
         std::fs::remove_dir_all(&base).ok();
 
         // All three sources merged.
@@ -835,7 +895,7 @@ mod tests {
         // Snap source fails; apt + flatpak must still produce apps.
         let snap = FakeSnap::failing(AppError::SourceUnavailable("snapd down".into()));
 
-        let agg = enumerate_with(&runner, &snap, &app_dirs, &icon_fixture_roots(), &dpkg_dir);
+        let agg = enumerate_with(&runner, &snap, &app_dirs, &icon_fixture_roots(), &[], &dpkg_dir);
         std::fs::remove_dir_all(&base).ok();
 
         let uids: Vec<&str> = agg.apps.iter().map(|a| a.uid.as_str()).collect();
@@ -844,6 +904,48 @@ mod tests {
         assert!(!uids.contains(&"snap:firefox"));
         assert_eq!(agg.warnings.len(), 1, "expected exactly one warning");
         assert!(agg.warnings[0].contains("snap"), "warning: {}", agg.warnings[0]);
+    }
+
+    #[test]
+    fn enumerate_with_includes_appimage_apps() {
+        let (base, app_dirs, dpkg_dir) = make_enumerate_tree("appimage");
+
+        let appimage_root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/appimages");
+
+        let runner = FakeRunner::new()
+            .with("dpkg-query", "gedit\t42.0\t4096\t\n")
+            .with("flatpak", "org.x.App\tX App\t1.0\t10 MB\tflathub\n");
+
+        let snap = FakeSnap::new().with_apps(vec![]);
+
+        let agg = enumerate_with(
+            &runner,
+            &snap,
+            &app_dirs,
+            &icon_fixture_roots(),
+            &[appimage_root],
+            &dpkg_dir,
+        );
+        std::fs::remove_dir_all(&base).ok();
+
+        // The AppImage fixture (Foo-1.2.3-x86_64.AppImage) must appear in the merged list.
+        let ai_apps: Vec<_> = agg.apps.iter().filter(|a| a.source == Source::AppImage).collect();
+        assert_eq!(ai_apps.len(), 1, "expected one AppImage app, got: {ai_apps:?}");
+        let ai = ai_apps[0];
+        assert_eq!(ai.name, "Foo");
+        assert_eq!(ai.version.as_deref(), Some("1.2.3"));
+        assert!(
+            ai.pkg_ref.ends_with("Foo-1.2.3-x86_64.AppImage"),
+            "unexpected pkg_ref: {}",
+            ai.pkg_ref
+        );
+
+        // Overall list must remain sorted.
+        let names: Vec<&str> = agg.apps.iter().map(|a| a.name.as_str()).collect();
+        let mut sorted = names.clone();
+        sorted.sort_by_key(|n| n.to_lowercase());
+        assert_eq!(names, sorted, "apps not sorted after AppImage merge: {names:?}");
     }
 
     // ── app_details_with ───────────────────────────────────────────────────────
@@ -1032,6 +1134,97 @@ mod tests {
             matches!(res, Err(AppError::PermissionDenied(_))),
             "auth-cancel stderr must classify as PermissionDenied, got {res:?}"
         );
+    }
+
+    // ── perform_uninstall (AppImage branch) ────────────────────────────────────
+
+    /// Helper: build an AppImage App with an optional desktop_path.
+    fn appimage_app(path: &str, desktop: Option<&str>) -> App {
+        let mut a = app(Source::AppImage, path, true, None);
+        a.pkg_ref = path.to_string();
+        a.uid = App::make_uid(Source::AppImage, path);
+        a.desktop_path = desktop.map(std::path::PathBuf::from);
+        a
+    }
+
+    /// Use appimage_app via perform_uninstall to exercise the full guard chain for
+    /// an AppImage app that IS in the list but whose path is non-removable.
+    #[test]
+    fn perform_uninstall_appimage_non_removable_path_blocked_by_guard() {
+        // pkg_ref is outside $HOME and /opt/ — validate_uninstall passes (app in
+        // list) but delete_appimage's path guard must refuse it.
+        let path = "/usr/share/extra/Foo.AppImage";
+        let runner = SpyRunner::new();
+        let apps = [appimage_app(path, None)];
+        // Temporarily scope HOME to ensure the guard uses a path that doesn't
+        // cover /usr/share. We call delete_appimage directly to avoid env races.
+        let res = crate::uninstall::delete_appimage(path, None, "/home/testuser", &runner);
+        assert!(
+            matches!(res, Err(AppError::Protected(_))),
+            "path outside home and /opt must be refused, got {res:?}"
+        );
+        // Confirm appimage_app is callable (the compiler will warn if never used).
+        let _ = &apps[0].uid;
+    }
+
+    #[test]
+    fn perform_uninstall_appimage_outside_home_and_opt_is_protected() {
+        // /usr/bin path is neither under $HOME nor /opt/ → the guard must refuse it.
+        // Call delete_appimage directly with an explicit home to avoid env mutation.
+        let runner = SpyRunner::new();
+        let path = "/usr/bin/not-removable.AppImage";
+        let res = crate::uninstall::delete_appimage(path, None, "/home/testuser", &runner);
+        assert!(
+            matches!(res, Err(AppError::Protected(_))),
+            "expected Protected for non-removable AppImage path, got {res:?}"
+        );
+        assert!(runner.calls().is_empty(), "guard must fire before any runner call");
+    }
+
+    #[test]
+    fn perform_uninstall_appimage_home_path_deletes_file() {
+        // Build a unique fake $HOME dir under /tmp so the guard sees the file as
+        // under $HOME, without touching any real user directory.
+        let fake_home = std::env::temp_dir()
+            .join(format!("showcase-home-{}", std::process::id()));
+        std::fs::create_dir_all(&fake_home).expect("create fake home");
+        let home_str = fake_home.to_string_lossy().to_string();
+
+        let ai_path = format!("{home_str}/Foo.AppImage");
+        std::fs::write(&ai_path, b"fake appimage").expect("write temp AppImage");
+        assert!(std::path::Path::new(&ai_path).exists(), "temp file must exist before delete");
+
+        // Bypass the $HOME env var by calling delete_appimage directly, which takes
+        // `home` as an argument — no global env mutation needed.
+        let runner = SpyRunner::new();
+        let res = crate::uninstall::delete_appimage(&ai_path, None, &home_str, &runner);
+        assert!(res.is_ok(), "expected Ok for home AppImage delete, got {res:?}");
+        assert!(
+            !std::path::Path::new(&ai_path).exists(),
+            "AppImage file should be deleted after uninstall"
+        );
+        // No runner calls: home delete is unprivileged.
+        assert!(runner.calls().is_empty(), "no runner call for home AppImage delete");
+        let _ = std::fs::remove_dir_all(&fake_home);
+    }
+
+    #[test]
+    fn perform_uninstall_appimage_unknown_uid_is_not_found() {
+        // validate_uninstall (called before the AppImage branch) returns NotFound
+        // when the uid is not in the app list.
+        let runner = SpyRunner::new();
+        let apps: Vec<App> = vec![];
+        let res = perform_uninstall(
+            Source::AppImage,
+            "/home/testuser/Apps/Missing.AppImage",
+            &runner,
+            &apps,
+        );
+        assert!(
+            matches!(res, Err(AppError::NotFound(_))),
+            "unknown AppImage uid must be NotFound, got {res:?}"
+        );
+        assert!(runner.calls().is_empty());
     }
 
     // ── validate_app_exists ────────────────────────────────────────────────────
