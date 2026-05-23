@@ -1,38 +1,52 @@
 <script lang="ts">
   import { toasts, dismissToast } from "$lib/stores";
+  import type { Toast } from "$lib/stores";
 
   const titleFor = (kind: "success" | "error") =>
     kind === "success" ? "Done" : "Something went wrong";
+
+  // Split by kind so errors live in an assertive region (announced at once)
+  // and successes in a polite one (announced when the user is idle).
+  let successToasts = $derived($toasts.filter((t) => t.kind === "success"));
+  let errorToasts = $derived($toasts.filter((t) => t.kind === "error"));
 </script>
 
-<div class="toast-stack" aria-live="polite" aria-atomic="false">
-  {#each $toasts as toast (toast.id)}
-    <div
-      class="toast"
-      class:success={toast.kind === "success"}
-      class:error={toast.kind === "error"}
-      role={toast.kind === "error" ? "alert" : undefined}
-    >
-      <div class="toast-icon" aria-hidden="true">
-        {#if toast.kind === "success"}
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-        {:else}
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-        {/if}
-      </div>
-      <div class="toast-body">
-        <div class="toast-title">{titleFor(toast.kind)}</div>
-        <div class="toast-msg">{toast.msg}</div>
-      </div>
-      <button
-        class="toast-close"
-        aria-label="Dismiss notification"
-        onclick={() => dismissToast(toast.id)}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-      </button>
+{#snippet toastItem(toast: Toast)}
+  <div class="toast" class:success={toast.kind === "success"} class:error={toast.kind === "error"}>
+    <div class="toast-icon" aria-hidden="true">
+      {#if toast.kind === "success"}
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      {:else}
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      {/if}
     </div>
-  {/each}
+    <div class="toast-body">
+      <div class="toast-title">{titleFor(toast.kind)}</div>
+      <div class="toast-msg">{toast.msg}</div>
+    </div>
+    <button
+      class="toast-close"
+      aria-label="Dismiss notification"
+      onclick={() => dismissToast(toast.id)}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+  </div>
+{/snippet}
+
+<div class="toast-stack">
+  <!-- Errors: announced immediately. -->
+  <div class="toast-region" role="alert" aria-live="assertive" aria-atomic="false">
+    {#each errorToasts as toast (toast.id)}
+      {@render toastItem(toast)}
+    {/each}
+  </div>
+  <!-- Successes: announced when the screen reader is idle. -->
+  <div class="toast-region" role="status" aria-live="polite" aria-atomic="false">
+    {#each successToasts as toast (toast.id)}
+      {@render toastItem(toast)}
+    {/each}
+  </div>
 </div>
 
 <style>
@@ -45,6 +59,17 @@
     flex-direction: column;
     gap: 10px;
     pointer-events: none;
+  }
+  /* Each region is a real flex column (reliable live-region semantics across
+     webviews). An empty region is hidden so it adds no phantom gap, keeping the
+     two stacks looking like one column with consistent 10px spacing. */
+  .toast-region {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .toast-region:empty {
+    display: none;
   }
   .toast {
     background: var(--surface);
