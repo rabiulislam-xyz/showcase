@@ -25,8 +25,12 @@
       prevFocus = document.activeElement as HTMLElement | null;
       drawerEl?.focus();
     } else if (prevFocus) {
-      prevFocus.focus();
+      // Restore on the next frame: the opener lives in the background container
+      // that was inert while the drawer was open, and an inert element can't take
+      // focus until the attribute is gone from the DOM.
+      const target = prevFocus;
       prevFocus = null;
+      requestAnimationFrame(() => target.focus());
     }
   });
 
@@ -35,20 +39,62 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape" && !confirmOpen) close();
+    if (!app) return;
+
+    // Esc closes the drawer, but not while the confirm dialog owns the layer.
+    if (e.key === "Escape" && !confirmOpen) {
+      close();
+      return;
+    }
+
+    // While the confirm dialog is open it runs its own trap; don't double-handle.
+    if (e.key === "Tab" && !confirmOpen && drawerEl) {
+      trapTab(e);
+    }
   }
 
-  // Lazy-load the long description whenever a new app is opened.
+  /** Keep Tab/Shift+Tab focus cycling within the open drawer. */
+  function trapTab(e: KeyboardEvent) {
+    if (!drawerEl) return;
+    const focusable = Array.from(
+      drawerEl.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((el) => !el.closest("[disabled]"));
+
+    if (focusable.length === 0) {
+      e.preventDefault();
+      drawerEl.focus();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+
+    // Wrap at the edges; also pull focus back in if it has escaped the drawer.
+    if (e.shiftKey) {
+      if (active === first || !drawerEl.contains(active)) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else if (active === last || !drawerEl.contains(active)) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
+  // Lazy-load the long description whenever a *different* app is opened.
+  // Track only the uid so re-renders that keep the same identity don't refetch.
   $effect(() => {
-    const current = app;
+    const uid = app?.uid;
     iconFailed = false;
-    if (!current) {
+    if (!uid) {
       description = null;
       descLoading = false;
       return;
     }
 
-    const uid = current.uid;
     descLoading = true;
     description = null;
     let cancelled = false;

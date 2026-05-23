@@ -7,6 +7,7 @@
     loadApps,
     query,
     sourceFilter,
+    selected,
   } from "$lib/stores";
   import Header from "$lib/components/Header.svelte";
   import StatusBanner from "$lib/components/StatusBanner.svelte";
@@ -25,10 +26,13 @@
   }
 </script>
 
-<Header />
+<!-- While the detail drawer is open it owns focus; mark the rest inert so Tab
+     can't reach the background grid and assistive tech skips it. -->
+<div inert={$selected !== null}>
+  <Header />
 
-<main>
-  <StatusBanner />
+  <main>
+    <StatusBanner />
 
   {#if $status === "loading"}
     <div class="grid">
@@ -57,7 +61,8 @@
   {:else}
     <AppGrid />
   {/if}
-</main>
+  </main>
+</div>
 
 <AppDetail />
 <Toast />
