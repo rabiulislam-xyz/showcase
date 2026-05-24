@@ -4,7 +4,7 @@ import { get } from "svelte/store";
 import { tick } from "svelte";
 import AppDetail from "./AppDetail.svelte";
 import { selected, apps, toasts } from "$lib/stores";
-import { getAppDetails, uninstallApp, iconSrc, launchApp, updateApp } from "$lib/api";
+import { getAppDetails, uninstallApp, iconSrc, launchApp, updateApp, checkAppUpdate } from "$lib/api";
 import type { App } from "$lib/types";
 
 // Mock only the api boundary; the real stores drive selection/toasts so we can
@@ -15,6 +15,7 @@ vi.mock("$lib/api", () => ({
   uninstallApp: vi.fn<(uid: string) => Promise<void>>(),
   launchApp: vi.fn<(uid: string) => Promise<void>>(),
   updateApp: vi.fn<(uid: string) => Promise<void>>(),
+  checkAppUpdate: vi.fn<(uid: string) => Promise<string | null>>(),
 }));
 
 const mockGetDetails = vi.mocked(getAppDetails);
@@ -22,6 +23,7 @@ const mockUninstall = vi.mocked(uninstallApp);
 const mockIconSrc = vi.mocked(iconSrc);
 const mockLaunch = vi.mocked(launchApp);
 const mockUpdate = vi.mocked(updateApp);
+const mockCheckAppUpdate = vi.mocked(checkAppUpdate);
 
 function makeApp(overrides: Partial<App> = {}): App {
   return {
@@ -55,6 +57,7 @@ beforeEach(() => {
   mockIconSrc.mockReset();
   mockLaunch.mockReset();
   mockUpdate.mockReset();
+  mockCheckAppUpdate.mockReset();
   mockIconSrc.mockReturnValue(null);
   mockGetDetails.mockResolvedValue("Firefox is a free web browser.");
 });
@@ -248,6 +251,88 @@ describe("AppDetail — Update button", () => {
 
     // Update failed → flag stays so the user can retry.
     expect(get(apps)[0].update_available).toBe("125.0");
+  });
+});
+
+describe("AppDetail — Check for update button", () => {
+  it("is shown only when there is no known update and the source is not appimage", () => {
+    selected.set(makeApp({ update_available: null, source: "apt" }));
+    render(AppDetail);
+    expect(screen.getByRole("button", { name: /check for update/i })).toBeInTheDocument();
+  });
+
+  it("is hidden when an update is already known", () => {
+    selected.set(makeApp({ update_available: "125.0" }));
+    render(AppDetail);
+    expect(screen.queryByRole("button", { name: /check for update/i })).not.toBeInTheDocument();
+  });
+
+  it("is hidden for AppImage apps", () => {
+    selected.set(makeApp({ uid: "appimage:foo", source: "appimage", name: "Foo", update_available: null }));
+    render(AppDetail);
+    expect(screen.queryByRole("button", { name: /check for update/i })).not.toBeInTheDocument();
+  });
+
+  it("when a version is returned: reveals the Update button and toasts the version", async () => {
+    const app = makeApp({ update_available: null });
+    apps.set([app]);
+    selected.set(app);
+    mockCheckAppUpdate.mockResolvedValueOnce("2.0");
+    render(AppDetail);
+
+    // No Update button before the check.
+    expect(screen.queryByRole("button", { name: /update to/i })).not.toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole("button", { name: /check for update/i }));
+    await tick();
+
+    expect(mockCheckAppUpdate).toHaveBeenCalledWith("apt:firefox");
+
+    // applyUpdates flips the flag → the "Update to 2.0" button appears.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /update to 2\.0/i })).toBeInTheDocument(),
+    );
+
+    const list = get(toasts);
+    expect(list).toHaveLength(1);
+    expect(list[0].kind).toBe("success");
+    expect(list[0].msg).toBe("Update available: 2.0");
+  });
+
+  it("when null is returned: toasts that the app is up to date and shows no Update button", async () => {
+    const app = makeApp({ update_available: null });
+    apps.set([app]);
+    selected.set(app);
+    mockCheckAppUpdate.mockResolvedValueOnce(null);
+    render(AppDetail);
+
+    await fireEvent.click(screen.getByRole("button", { name: /check for update/i }));
+
+    await waitFor(() => {
+      const list = get(toasts);
+      expect(list).toHaveLength(1);
+      expect(list[0].kind).toBe("success");
+      expect(list[0].msg).toBe("Firefox is up to date");
+    });
+
+    expect(screen.queryByRole("button", { name: /update to/i })).not.toBeInTheDocument();
+  });
+
+  it("on error: pushes an error toast with the parsed message", async () => {
+    const app = makeApp({ update_available: null });
+    apps.set([app]);
+    selected.set(app);
+    mockCheckAppUpdate.mockRejectedValueOnce({ kind: "Backend", message: "apt unavailable" });
+    render(AppDetail);
+
+    await fireEvent.click(screen.getByRole("button", { name: /check for update/i }));
+
+    await waitFor(() => {
+      const list = get(toasts);
+      expect(list).toHaveLength(1);
+      expect(list[0].kind).toBe("error");
+      expect(list[0].msg).toBe("apt unavailable");
+    });
   });
 });
 

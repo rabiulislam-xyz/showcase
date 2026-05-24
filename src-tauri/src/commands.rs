@@ -491,6 +491,29 @@ pub async fn check_updates() -> Result<Vec<(String, String)>, AppError> {
     .map_err(|e| AppError::Backend(format!("join: {e}")))?
 }
 
+/// Check ONLY the app identified by `uid` ("source:pkg_ref") for an available
+/// update, using cached package-manager metadata (no privileged refresh).
+///
+/// Returns `Some(version)` when an update is available, `None` when up to date
+/// or unsupported (AppImage). A malformed/unknown uid is `NotFound`. The cached
+/// listing query is blocking I/O, so the work runs on the blocking pool via
+/// `spawn_blocking`, mirroring [`check_updates`].
+#[tauri::command]
+pub async fn check_app_update(uid: String) -> Result<Option<String>, AppError> {
+    let (src, pkg) = uid
+        .split_once(':')
+        .ok_or_else(|| AppError::NotFound(uid.clone()))?;
+    let source = Source::parse(src)
+        .ok_or_else(|| AppError::NotFound(uid.clone()))?;
+    let pkg = pkg.to_string();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(crate::updates::check_app_update_with(&SystemRunner, source, &pkg))
+    })
+    .await
+    .map_err(|e| AppError::Backend(format!("join: {e}")))?
+}
+
 #[tauri::command]
 pub fn list_apps() -> AppList {
     let agg = enumerate();

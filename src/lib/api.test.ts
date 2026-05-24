@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { listApps, getAppDetails, uninstallApp, iconSrc } from "./api";
+import { listApps, getAppDetails, uninstallApp, iconSrc, checkAppUpdate } from "./api";
 import type { App, AppList } from "./types";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -74,6 +74,22 @@ describe("uninstallApp", () => {
     await uninstallApp("flatpak:vlc");
 
     expect(mockInvoke).toHaveBeenCalledWith("uninstall_app", { uid: "flatpak:vlc" });
+  });
+});
+
+describe("checkAppUpdate", () => {
+  it("invokes check_app_update with the uid and returns the version", async () => {
+    mockInvoke.mockResolvedValueOnce("2.0");
+
+    const result = await checkAppUpdate("apt:firefox");
+
+    expect(mockInvoke).toHaveBeenCalledWith("check_app_update", { uid: "apt:firefox" });
+    expect(result).toBe("2.0");
+  });
+
+  it("propagates a null result when up to date", async () => {
+    mockInvoke.mockResolvedValueOnce(null);
+    await expect(checkAppUpdate("snap:vlc")).resolves.toBeNull();
   });
 });
 

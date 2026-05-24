@@ -49,6 +49,27 @@ pub fn build_update_command(source: Source, pkg_ref: &str) -> (&'static str, Vec
     }
 }
 
+/// Check ONLY this app's source for an available update, using CACHED metadata.
+///
+/// Unlike [`check_updates_with`], this performs NO privileged metadata refresh
+/// (`pkexec apt-get update`): it reads whatever the package managers already know.
+/// That keeps the per-app check instant and password-free.
+///
+/// Returns `Some(version)` when the package is listed as upgradable, otherwise
+/// `None`. AppImage has no update path, and any source error degrades to `None`.
+pub fn check_app_update_with(runner: &dyn CommandRunner, source: Source, pkg_ref: &str) -> Option<String> {
+    let pairs = match source {
+        // Unprivileged, cached: no `apt-get update` first.
+        Source::Apt => parse_apt_upgradable(&runner.run("apt", &["list", "--upgradable"]).ok()?),
+        Source::Flatpak => parse_flatpak_updates(
+            &runner.run("flatpak", &["remote-ls", "--updates", "--app", "--columns=application,version"]).ok()?,
+        ),
+        Source::Snap => parse_snap_refresh_list(&runner.run("snap", &["refresh", "--list"]).ok()?),
+        Source::AppImage => return None,
+    };
+    pairs.into_iter().find(|(p, _)| p == pkg_ref).map(|(_, v)| v)
+}
+
 /// Run the per-source update checks and return (uid, available_version) pairs.
 /// apt requires a privileged metadata refresh first (`pkexec apt-get update`).
 /// Per-source failure is isolated (logged via the returned warnings vec).
@@ -205,6 +226,73 @@ mod tests {
         assert!(warnings[0].contains("apt"), "warning should mention 'apt'");
         // flatpak result survives
         assert!(pairs.contains(&("flatpak:org.gimp.GIMP".to_string(), "2.10.38".to_string())));
+    }
+
+    // ── check_app_update_with ─────────────────────────────────────────────────
+
+    #[test]
+    fn check_app_update_apt_found_returns_version() {
+        let runner = FakeRunner::new()
+            .with("apt", "Listing...\nfirefox/jammy-updates 125.0 amd64 [upgradable from: 124.0]\nvim/jammy 2:9.0 amd64 [upgradable from: 2:8.2]\n");
+        assert_eq!(
+            check_app_update_with(&runner, Source::Apt, "firefox"),
+            Some("125.0".to_string())
+        );
+    }
+
+    #[test]
+    fn check_app_update_apt_not_listed_returns_none() {
+        // Output lists firefox only; querying gimp must yield None.
+        let runner = FakeRunner::new()
+            .with("apt", "Listing...\nfirefox/jammy-updates 125.0 amd64 [upgradable from: 124.0]\n");
+        assert_eq!(check_app_update_with(&runner, Source::Apt, "gimp"), None);
+    }
+
+    #[test]
+    fn check_app_update_flatpak_found_returns_version() {
+        let runner = FakeRunner::new().with("flatpak", "org.gimp.GIMP\t2.10.38\ncom.x.App\t1.1\n");
+        assert_eq!(
+            check_app_update_with(&runner, Source::Flatpak, "org.gimp.GIMP"),
+            Some("2.10.38".to_string())
+        );
+    }
+
+    #[test]
+    fn check_app_update_flatpak_not_listed_returns_none() {
+        let runner = FakeRunner::new().with("flatpak", "com.x.App\t1.1\n");
+        assert_eq!(check_app_update_with(&runner, Source::Flatpak, "org.gimp.GIMP"), None);
+    }
+
+    #[test]
+    fn check_app_update_snap_found_returns_version() {
+        let runner = FakeRunner::new()
+            .with("snap", "Name    Version  Rev  Publisher  Notes\nfirefox 126.0    1234 mozilla    -\n");
+        assert_eq!(
+            check_app_update_with(&runner, Source::Snap, "firefox"),
+            Some("126.0".to_string())
+        );
+    }
+
+    #[test]
+    fn check_app_update_snap_not_listed_returns_none() {
+        let runner = FakeRunner::new().with("snap", "All snaps up to date.\n");
+        assert_eq!(check_app_update_with(&runner, Source::Snap, "firefox"), None);
+    }
+
+    #[test]
+    fn check_app_update_appimage_is_always_none() {
+        // Even with a (nonsensical) canned response, AppImage short-circuits to None.
+        let runner = FakeRunner::new().with("apt", "Listing...\nfoo/x 1.0 amd64 [upgradable from: 0.9]\n");
+        assert_eq!(check_app_update_with(&runner, Source::AppImage, "foo"), None);
+    }
+
+    #[test]
+    fn check_app_update_source_error_is_none() {
+        // No fake registered → runner errors → None (no panic), per source.
+        let runner = FakeRunner::new();
+        assert_eq!(check_app_update_with(&runner, Source::Apt, "firefox"), None);
+        assert_eq!(check_app_update_with(&runner, Source::Flatpak, "org.x.App"), None);
+        assert_eq!(check_app_update_with(&runner, Source::Snap, "firefox"), None);
     }
 
     /// A FakeRunner variant that returns different responses per program (FakeRunner already

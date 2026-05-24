@@ -24,6 +24,7 @@ pub fn run() {
             commands::uninstall_app,
             commands::launch_app,
             commands::check_updates,
+            commands::check_app_update,
             commands::update_app,
             commands::update_all
         ])

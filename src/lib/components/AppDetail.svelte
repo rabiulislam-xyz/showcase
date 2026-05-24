@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { selected, removeApp, pushToast, clearUpdate } from "$lib/stores";
-  import { iconSrc, getAppDetails, uninstallApp, launchApp, updateApp } from "$lib/api";
+  import { selected, removeApp, pushToast, clearUpdate, applyUpdates } from "$lib/stores";
+  import { iconSrc, getAppDetails, uninstallApp, launchApp, updateApp, checkAppUpdate } from "$lib/api";
   import { humanSize, humanDate } from "$lib/format";
   import { tileColor, tileInitial, sourceLabel } from "$lib/avatar";
   import { parseAppError } from "$lib/errors";
@@ -200,6 +200,30 @@
       updating = false;
     }
   }
+
+  // Per-app cached update check (instant, no password). Shown only when no
+  // update is already known and the source supports updates (not AppImage).
+  let checkingUpdate = $state(false);
+
+  async function handleCheckUpdate() {
+    if (!app || checkingUpdate) return;
+    const { uid, name } = app;
+    checkingUpdate = true;
+    try {
+      const version = await checkAppUpdate(uid);
+      if (version) {
+        // Reveals the existing "Update to {v}" button via the store flag.
+        applyUpdates([[uid, version]]);
+        pushToast("success", `Update available: ${version}`);
+      } else {
+        pushToast("success", `${name} is up to date`);
+      }
+    } catch (e: unknown) {
+      pushToast("error", parseAppError(e).message);
+    } finally {
+      checkingUpdate = false;
+    }
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -276,6 +300,21 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>
           Open
         </button>
+        {#if !app.update_available && app.source !== "appimage"}
+          <button
+            class="btn btn-secondary"
+            disabled={checkingUpdate}
+            aria-busy={checkingUpdate}
+            onclick={handleCheckUpdate}
+          >
+            {#if checkingUpdate}
+              <Spinner size={14} />
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+            {/if}
+            Check for update
+          </button>
+        {/if}
         {#if app.update_available}
           <button
             class="btn btn-update"
@@ -556,6 +595,21 @@
     border-color: var(--accent);
   }
   .btn-update:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+  .btn-secondary {
+    color: var(--text-muted);
+    border-color: var(--border);
+    background: var(--surface);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+  }
+  .btn-secondary:disabled {
+    color: var(--text-faint);
     cursor: not-allowed;
     opacity: 0.7;
   }

@@ -19,6 +19,10 @@ export const launchApp = (uid: string): Promise<void> =>
 export const checkUpdates = (): Promise<[string, string][]> =>
   invoke<[string, string][]>("check_updates");
 
+/** Check a single app for an update via cached metadata → version string or null. */
+export const checkAppUpdate = (uid: string): Promise<string | null> =>
+  invoke<string | null>("check_app_update", { uid });
+
 export const updateApp = (uid: string): Promise<void> =>
   invoke<void>("update_app", { uid });
 
