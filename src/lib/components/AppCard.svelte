@@ -164,4 +164,8 @@
     color: var(--snap);
     background: var(--snap-tint);
   }
+  .tag.appimage {
+    color: var(--appimage);
+    background: var(--appimage-tint);
+  }
 </style>

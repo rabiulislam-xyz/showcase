@@ -23,8 +23,8 @@
   --flatpak-tint: rgba(78, 131, 127, 0.10);
   --snap: #8E5A85;
   --snap-tint: rgba(142, 90, 133, 0.10);
-  --appimage: #5C6B8A;
-  --appimage-tint: rgba(92, 107, 138, 0.10);
+  --appimage: #3E6FB0;
+  --appimage-tint: rgba(62, 111, 176, 0.10);
   --shadow: 0 1px 2px rgba(20, 20, 19, 0.04), 0 8px 24px rgba(20, 20, 19, 0.06);
   --shadow-drawer: -8px 0 32px rgba(20, 20, 19, 0.08);
   --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
@@ -58,8 +58,8 @@
   --flatpak-tint: rgba(124, 179, 174, 0.14);
   --snap: #BD8FB4;
   --snap-tint: rgba(189, 143, 180, 0.14);
-  --appimage: #8C9BBF;
-  --appimage-tint: rgba(140, 155, 191, 0.14);
+  --appimage: #7FA8E0;
+  --appimage-tint: rgba(127, 168, 224, 0.16);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-drawer: -8px 0 32px rgba(0, 0, 0, 0.5);
 }
