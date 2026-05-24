@@ -58,6 +58,21 @@ describe("AppCard", () => {
     expect(screen.queryByText("120.0")).not.toBeInTheDocument();
   });
 
+  it("shows the human-readable size when size_bytes is set", () => {
+    // 97086620 bytes → "92.6 MB" per humanSize (1024-based).
+    render(AppCard, { props: { app: makeApp({ size_bytes: 97_086_620 }) } });
+
+    expect(screen.getByText(/92\.6 MB/)).toBeInTheDocument();
+  });
+
+  it("does not render a size (or the placeholder) when size_bytes is null", () => {
+    render(AppCard, { props: { app: makeApp({ size_bytes: null }) } });
+
+    // No bogus formatted size and no "—" placeholder leaking into the card.
+    expect(screen.queryByText(/\bMB\b|\bKB\b|\bGB\b|\bB\b/)).not.toBeInTheDocument();
+    expect(screen.queryByText("—")).not.toBeInTheDocument();
+  });
+
   it("maps a flatpak source to the Flatpak badge", () => {
     render(AppCard, { props: { app: makeApp({ source: "flatpak", uid: "flatpak:vlc", name: "VLC" }) } });
 

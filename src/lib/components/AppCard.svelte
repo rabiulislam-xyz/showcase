@@ -3,6 +3,7 @@
   import { iconSrc } from "$lib/api";
   import { selected } from "$lib/stores";
   import { tileColor, tileInitial, sourceLabel } from "$lib/avatar";
+  import { humanSize } from "$lib/format";
 
   let { app }: { app: App } = $props();
 
@@ -49,6 +50,9 @@
     <span class="tag {app.source}">{sourceLabel(app.source)}</span>
     {#if app.version}
       <span class="card-version">{app.version}</span>
+    {/if}
+    {#if app.size_bytes !== null}
+      <span class="card-size">· {humanSize(app.size_bytes)}</span>
     {/if}
     {#if app.update_available}
       <span class="update-dot" title="Update available" aria-label="Update available"></span>
@@ -126,6 +130,11 @@
     margin-top: auto;
   }
   .card-version {
+    font-size: 12px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .card-size {
     font-size: 12px;
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
